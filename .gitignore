@@ -1,0 +1,14 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+data/videos/
+data/frames/
+data/highlights/
+*.mp4
+models/weights/*.pt
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
