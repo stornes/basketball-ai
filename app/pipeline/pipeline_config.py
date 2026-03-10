@@ -21,9 +21,9 @@ def detect_device() -> str:
 class PipelineConfig:
     device: str = field(default_factory=detect_device)
     yolo_model: str = "yolov8n.pt"
-    confidence_threshold: float = 0.4
-    iou_threshold: float = 0.45
-    frame_sample_rate: int = 2
+    confidence_threshold: float = 0.35
+    iou_threshold: float = 0.5
+    frame_sample_rate: int = 3
     batch_size: int = 8
     court_confidence_threshold: float = 0.6
     output_dir: str = "data/outputs"

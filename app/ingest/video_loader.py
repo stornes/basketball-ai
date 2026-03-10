@@ -53,17 +53,32 @@ class VideoLoader:
         )
 
     def frames(self, sample_rate: int = 1) -> Generator[tuple[int, np.ndarray], None, None]:
-        """Yield (frame_index, frame_array) tuples, sampling every Nth frame."""
+        """Yield (frame_index, frame_array) tuples, sampling every Nth frame.
+        Uses a background thread for parallel loading."""
+        import queue
+        from concurrent.futures import ThreadPoolExecutor
+        
         cap = self._ensure_cap()
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if idx % sample_rate == 0:
-                yield idx, frame
-            idx += 1
+        q = queue.Queue(maxsize=30)
+        
+        def _reader():
+            while True:
+                ret, frame = cap.read()
+                q.put((ret, frame))
+                if not ret:
+                    break
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(_reader)
+            while True:
+                ret, frame = q.get()
+                if not ret:
+                    break
+                if idx % sample_rate == 0:
+                    yield idx, frame
+                idx += 1
 
     def _ensure_cap(self) -> cv2.VideoCapture:
         if self._cap is None or not self._cap.isOpened():

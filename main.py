@@ -10,7 +10,7 @@ from app.pipeline.run_analysis import PipelineOrchestrator
 @click.argument("video_path", type=click.Path(exists=True))
 @click.option("--output-dir", default="data/outputs", help="Output directory")
 @click.option("--device", default="auto", help="Compute device: auto|mps|cpu")
-@click.option("--sample-rate", default=2, help="Process every Nth frame")
+@click.option("--sample-rate", default=3, help="Process every Nth frame")
 @click.option("--no-clips", is_flag=True, help="Skip clip generation")
 @click.option("--no-agent", is_flag=True, help="Skip AI coaching report")
 @click.option(

@@ -30,16 +30,21 @@ def test_detection_dataclass():
 
 
 @patch("ultralytics.YOLO")
-def test_detector_processes_frame(mock_yolo_cls, synthetic_frame):
-    """Test detector with mocked YOLO model."""
+def test_detector_processes_batch(mock_yolo_cls, synthetic_frame):
+    """Test detector batch detection with mocked YOLO model."""
     mock_model = MagicMock()
     mock_yolo_cls.return_value = mock_model
 
+    def _make_tensor(val):
+        m = MagicMock()
+        m.cpu.return_value.numpy.return_value = np.array(val)
+        return m
+
     # Mock YOLO result with proper tensor-like objects
     mock_boxes = MagicMock()
-    mock_boxes.xyxy = [MagicMock(cpu=lambda: MagicMock(numpy=lambda: np.array([100, 200, 150, 320])))]
-    mock_boxes.conf = [MagicMock(cpu=lambda: MagicMock(numpy=lambda: np.array(0.9)))]
-    mock_boxes.cls = [MagicMock(cpu=lambda: MagicMock(numpy=lambda: np.array(0)))]
+    mock_boxes.xyxy = [_make_tensor([100, 200, 150, 320])]
+    mock_boxes.conf = [_make_tensor(0.9)]
+    mock_boxes.cls = [_make_tensor(0)]
     mock_boxes.__len__ = lambda self: 1
 
     mock_result = MagicMock()
@@ -51,6 +56,7 @@ def test_detector_processes_frame(mock_yolo_cls, synthetic_frame):
     config = PipelineConfig(device="cpu")
     detector = PlayerBallDetector(config)
 
-    detections = detector.detect_frame(synthetic_frame, frame_idx=0)
-    assert len(detections) == 1
-    assert detections[0].class_name == "person"
+    batch_detections = detector.detect_batch([synthetic_frame], [0])
+    assert len(batch_detections) == 1
+    assert len(batch_detections[0]) == 1
+    assert batch_detections[0][0].class_name == "person"

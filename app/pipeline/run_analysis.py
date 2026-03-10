@@ -69,6 +69,56 @@ class PipelineOrchestrator:
             print(f"Stage 3: Processing frames (sample_rate={self.config.frame_sample_rate})...")
             t_detect = time.perf_counter()
 
+            batch_frames = []
+            batch_indices = []
+
+            def _process_batch(frames, indices):
+                nonlocal frames_processed
+                # Only pass court_bbox if calibration was successful
+                court_bbox = None
+                if court_calibrated:
+                    court_bbox = court_mapper.get_court_bbox(frames[0].shape)
+                
+                # Batch detection using the new detector method
+                batch_dets = detector.detect_batch(frames, indices, court_bbox=court_bbox)
+                
+                for i in range(len(frames)):
+                    frame = frames[i]
+                    frame_idx = indices[i]
+                    detections = batch_dets[i]
+
+                    # Track players
+                    players = tracker.update(detections, frame, frame_idx)
+
+                    # Apply court mapping to player positions
+                    if court_calibrated:
+                        for p in players:
+                            cx, cy = p.bbox.center
+                            p.court_position = court_mapper.to_court_coords(cx, cy)
+
+                    all_tracks.extend(players)
+
+                    # Detect shots
+                    ball_dets = [d for d in detections if d.class_id == 32]
+                    ball = ball_dets[0] if ball_dets else None
+                    shot = shot_detector.update(ball, players, frame_idx)
+                    if shot:
+                        if court_calibrated and ball:
+                            bx, by = ball.bbox.center
+                            shot.court_position = court_mapper.to_court_coords(bx, by)
+                        result.shot_events.append(shot)
+                        poss = possession_tracker.end_possession_on_shot(frame_idx)
+                        if poss:
+                            result.possession_events.append(poss)
+                    else:
+                        poss = possession_tracker.update(ball, players, frame_idx)
+                        if poss:
+                            result.possession_events.append(poss)
+
+                    frames_processed += 1
+                    if frames_processed % 100 == 0:
+                        print(f"  Processed {frames_processed} frames...")
+
             for frame_idx, frame in loader.frames(sample_rate=self.config.frame_sample_rate):
                 # Court calibration (first 30 sampled frames)
                 if not court_calibrated and frames_processed < 30:
@@ -76,43 +126,17 @@ class PipelineOrchestrator:
                     if court_calibrated:
                         print("  Court calibration successful")
 
-                # Detect players and ball
-                detections = detector.detect_frame(frame, frame_idx)
-
-                # Track players
-                players = tracker.update(detections, frame, frame_idx)
-
-                # Apply court mapping to player positions
-                if court_calibrated:
-                    for p in players:
-                        cx, cy = p.bbox.center
-                        p.court_position = court_mapper.to_court_coords(cx, cy)
-
-                all_tracks.extend(players)
-
-                # Detect shots
-                ball_dets = [d for d in detections if d.class_id == 32]
-                ball = ball_dets[0] if ball_dets else None
-                shot = shot_detector.update(ball, players, frame_idx)
-                if shot:
-                    # Apply court mapping to shot position
-                    if court_calibrated and ball:
-                        bx, by = ball.bbox.center
-                        shot.court_position = court_mapper.to_court_coords(bx, by)
-                    result.shot_events.append(shot)
-                    # End possession on shot
-                    poss = possession_tracker.end_possession_on_shot(frame_idx)
-                    if poss:
-                        result.possession_events.append(poss)
-                else:
-                    # Track possession
-                    poss = possession_tracker.update(ball, players, frame_idx)
-                    if poss:
-                        result.possession_events.append(poss)
-
-                frames_processed += 1
-                if frames_processed % 100 == 0:
-                    print(f"  Processed {frames_processed} frames...")
+                batch_frames.append(frame)
+                batch_indices.append(frame_idx)
+                
+                if len(batch_frames) == self.config.batch_size:
+                    _process_batch(batch_frames, batch_indices)
+                    batch_frames = []
+                    batch_indices = []
+            
+            # Process remaining frames
+            if len(batch_frames) > 0:
+                _process_batch(batch_frames, batch_indices)
 
         result.timing["detection"] = time.perf_counter() - t_detect
         print(f"  Detection complete: {frames_processed} frames in "
@@ -140,6 +164,26 @@ class PipelineOrchestrator:
         poss_df = metrics.possessions_dataframe()
         poss_df.to_json(poss_path, orient="records", indent=2)
         result.possessions_path = poss_path
+
+        # Save shots
+        shots_path = str(output_dir / "shots.json")
+        shots_df = metrics.shots_dataframe()
+        shots_df.to_json(shots_path, orient="records", indent=2)
+
+        # Save player tracks
+        tracks_path = str(output_dir / "player_tracks.json")
+        track_data = []
+        for t in all_tracks:
+            cx, cy = t.court_position if hasattr(t, 'court_position') and t.court_position else (None, None)
+            track_data.append({
+                "track_id": t.track_id,
+                "frame_idx": t.frame_idx,
+                "bbox": [t.bbox.x1, t.bbox.y1, t.bbox.x2, t.bbox.y2],
+                "court_x": cx,
+                "court_y": cy
+            })
+        with open(tracks_path, "w") as f:
+            json.dump(track_data, f, indent=2)
 
         # Stage 5: Generate shot chart
         print("Stage 5: Generating shot chart...")

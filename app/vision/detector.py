@@ -16,41 +16,81 @@ class PlayerBallDetector:
         from ultralytics import YOLO
         self.model = YOLO(config.yolo_model)
         self.device = config.device
+        self.model.to(self.device)
         self.conf = config.confidence_threshold
         self.iou = config.iou_threshold
 
-    def detect_frame(self, frame: np.ndarray, frame_idx: int) -> list[Detection]:
-        """Run detection on a single frame."""
+    def detect_batch(self, frames: list[np.ndarray], frame_indices: list[int], court_bbox=None) -> list[list[Detection]]:
+        """Run batched detection on a list of frames."""
+        import cv2
+        batch_inputs = []
+        croppings = []
+        original_sizes = []
+
+        for frame in frames:
+            original_sizes.append((frame.shape[1], frame.shape[0])) # w, h
+            if court_bbox:
+                y1, y2, x1, x2 = court_bbox
+                cropped = frame[y1:y2, x1:x2]
+                croppings.append((x1, y1))
+            else:
+                cropped = frame
+                croppings.append((0, 0))
+                
+            frame_small = cv2.resize(cropped, (960, 540))
+            batch_inputs.append(frame_small)
+
         results = self.model.predict(
-            frame,
+            batch_inputs,
             conf=self.conf,
             iou=self.iou,
+            max_det=20,
             device=self.device,
             classes=[self.PERSON_CLASS, self.BALL_CLASS],
             verbose=False,
         )
 
-        detections = []
-        if results and len(results) > 0:
-            result = results[0]
+        batch_detections = []
+        for i, result in enumerate(results):
+            detections = []
             boxes = result.boxes
-            for i in range(len(boxes)):
-                xyxy = boxes.xyxy[i].cpu().numpy()
-                conf = float(boxes.conf[i].cpu().numpy())
-                cls_id = int(boxes.cls[i].cpu().numpy())
+            cx, cy = croppings[i]
+            orig_w, orig_h = original_sizes[i]
+            
+            # scaling factor from 960x540 to the cropped frame size
+            if court_bbox:
+                crop_w = court_bbox[3] - court_bbox[2]
+                crop_h = court_bbox[1] - court_bbox[0]
+            else:
+                crop_w, crop_h = orig_w, orig_h
+                
+            scale_x = crop_w / 960.0
+            scale_y = crop_h / 540.0
+
+            for j in range(len(boxes)):
+                xyxy = boxes.xyxy[j].cpu().numpy()
+                conf = float(boxes.conf[j].cpu().numpy())
+                cls_id = int(boxes.cls[j].cpu().numpy())
                 cls_name = result.names[cls_id]
+
+                # scale and offset
+                x1 = (xyxy[0] * scale_x) + cx
+                y1 = (xyxy[1] * scale_y) + cy
+                x2 = (xyxy[2] * scale_x) + cx
+                y2 = (xyxy[3] * scale_y) + cy
 
                 detections.append(Detection(
                     bbox=BoundingBox(
-                        x1=float(xyxy[0]),
-                        y1=float(xyxy[1]),
-                        x2=float(xyxy[2]),
-                        y2=float(xyxy[3]),
+                        x1=float(x1),
+                        y1=float(y1),
+                        x2=float(x2),
+                        y2=float(y2),
                     ),
                     confidence=conf,
                     class_id=cls_id,
                     class_name=cls_name,
-                    frame_idx=frame_idx,
+                    frame_idx=frame_indices[i],
                 ))
+            batch_detections.append(detections)
 
-        return detections
+        return batch_detections

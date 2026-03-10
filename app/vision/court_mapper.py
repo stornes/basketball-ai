@@ -41,6 +41,7 @@ class CourtMapper:
         if corners is None:
             return False
 
+        self.corners = corners
         src = np.float32(corners)
         dst = np.float32([
             [0, 0],
@@ -51,6 +52,17 @@ class CourtMapper:
 
         self.H = cv2.getPerspectiveTransform(src, dst)
         return True
+
+    def get_court_bbox(self, frame_shape: tuple) -> tuple[int, int, int, int] | None:
+        """Return (y1, y2, x1, x2) for cropping. We use the corners bounding box with margin."""
+        if not hasattr(self, 'corners') or self.corners is None:
+            return None
+        h, w = frame_shape[:2]
+        xs = [c[0] for c in self.corners]
+        ys = [c[1] for c in self.corners]
+        x1, y1 = max(0, int(min(xs) - 20)), max(0, int(min(ys) - 20))
+        x2, y2 = min(w, int(max(xs) + 20)), min(h, int(max(ys) + 20))
+        return y1, y2, x1, x2
 
     def to_court_coords(self, pixel_x: float, pixel_y: float) -> tuple[float, float] | None:
         """Convert pixel coordinates to court coordinates (in feet)."""
