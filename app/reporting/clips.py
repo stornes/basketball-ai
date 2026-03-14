@@ -34,23 +34,35 @@ class ClipGenerator:
         fps: float,
         output_dir: str,
     ) -> list[str]:
-        """Generate highlight clips for all shot events."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        clips = []
+        """Generate highlight clips for all shot events in parallel."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        for i, event in enumerate(shot_events):
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        def _extract_one(i: int, event: ShotEvent) -> str | None:
             start_sec = max(0, event.clip_start_frame / fps)
             end_sec = event.clip_end_frame / fps
             filename = f"shot_{i:03d}_{event.outcome.value}.mp4"
             out_path = str(Path(output_dir) / filename)
-
             try:
                 self.generate_clip(start_sec, end_sec, out_path)
-                clips.append(out_path)
+                return out_path
             except Exception as e:
                 print(f"Warning: Failed to generate clip {filename}: {e}")
+                return None
 
-        return clips
+        clips = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {
+                pool.submit(_extract_one, i, ev): i
+                for i, ev in enumerate(shot_events)
+            }
+            for fut in as_completed(futures):
+                path = fut.result()
+                if path:
+                    clips.append(path)
+
+        return sorted(clips)
 
     @staticmethod
     def _find_ffmpeg() -> str:

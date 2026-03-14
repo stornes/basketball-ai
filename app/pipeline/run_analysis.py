@@ -88,7 +88,7 @@ class PipelineOrchestrator:
                     detections = batch_dets[i]
 
                     # Track players
-                    players = tracker.update(detections, frame, frame_idx)
+                    players = tracker.update(detections, frame_idx)
 
                     # Apply court mapping to player positions
                     if court_calibrated:
