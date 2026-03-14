@@ -5,8 +5,10 @@ __pycache__/
 data/videos/
 data/frames/
 data/highlights/
+data/outputs/
 *.mp4
-models/weights/*.pt
+*.pt
+models/weights/
 .env
 *.egg-info/
 dist/
