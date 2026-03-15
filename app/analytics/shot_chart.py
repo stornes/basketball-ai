@@ -15,7 +15,12 @@ class ShotChartGenerator:
     COURT_WIDTH = 50.0
     COURT_LENGTH = 47.0  # half court
 
-    def generate(self, shots_df: pd.DataFrame, output_path: str) -> str:
+    def generate(
+        self,
+        shots_df: pd.DataFrame,
+        output_path: str,
+        title: str = "Shot Chart",
+    ) -> str:
         """Generate shot chart PNG from shots DataFrame.
 
         Expected columns: court_x, court_y, outcome
@@ -33,8 +38,8 @@ class ShotChartGenerator:
                     ax.scatter(
                         valid.loc[made_mask, "court_x"],
                         valid.loc[made_mask, "court_y"],
-                        c="green", marker="o", s=120, label="Made",
-                        alpha=0.7, edgecolors="darkgreen", linewidths=1.5,
+                        c="green", marker="x", s=120, label="Made",
+                        alpha=0.7, linewidths=2.5,
                         zorder=5,
                     )
                 missed_mask = ~made_mask
@@ -51,7 +56,7 @@ class ShotChartGenerator:
         ax.set_ylim(-2, self.COURT_LENGTH + 2)
         ax.set_aspect("equal")
         ax.legend(loc="upper right")
-        ax.set_title("Shot Chart", fontsize=16, fontweight="bold")
+        ax.set_title(title, fontsize=16, fontweight="bold")
         ax.set_xlabel("Court Width (ft)")
         ax.set_ylabel("Court Length (ft)")
 

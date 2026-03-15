@@ -20,6 +20,7 @@ class ShotEvent:
     outcome: ShotOutcome
     clip_start_frame: int
     clip_end_frame: int
+    team: str | None = None
 
 
 @dataclass

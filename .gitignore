@@ -13,4 +13,6 @@ models/weights/
 *.egg-info/
 dist/
 build/
+data/datasets/
+runs/
 .pytest_cache/

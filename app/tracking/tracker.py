@@ -19,6 +19,7 @@ class TrackedPlayer:
     frame_idx: int
     is_confirmed: bool
     court_position: tuple[float, float] | None = None
+    team: str | None = None
 
 
 class PlayerTracker:

@@ -31,3 +31,7 @@ class PipelineConfig:
     enable_coaching_agent: bool = True
     llm_backend: str = "gemini"  # "gemini" | "template"
     gemini_model: str = "gemini-2.0-flash"
+    class_map: dict | None = None  # {model_class_id: "person"|"ball"} for fine-tuned models
+    enable_team_classification: bool = True
+    quarter_duration_sec: int = 600  # 10 min FIBA U16 default (NBA: 720)
+    roster_path: str | None = None  # path to roster.json

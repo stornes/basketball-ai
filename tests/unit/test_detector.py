@@ -35,16 +35,18 @@ def test_detector_processes_batch(mock_yolo_cls, synthetic_frame):
     mock_model = MagicMock()
     mock_yolo_cls.return_value = mock_model
 
-    def _make_tensor(val):
+    def _make_batch_tensor(vals):
+        """Create a mock tensor that supports both bulk .cpu().numpy() and per-index access."""
+        arr = np.array(vals)
         m = MagicMock()
-        m.cpu.return_value.numpy.return_value = np.array(val)
+        m.cpu.return_value.numpy.return_value = arr
         return m
 
-    # Mock YOLO result with proper tensor-like objects
+    # Mock YOLO result with batch tensor-like objects
     mock_boxes = MagicMock()
-    mock_boxes.xyxy = [_make_tensor([100, 200, 150, 320])]
-    mock_boxes.conf = [_make_tensor(0.9)]
-    mock_boxes.cls = [_make_tensor(0)]
+    mock_boxes.xyxy = _make_batch_tensor([[100, 200, 150, 320]])
+    mock_boxes.conf = _make_batch_tensor([0.9])
+    mock_boxes.cls = _make_batch_tensor([0])
     mock_boxes.__len__ = lambda self: 1
 
     mock_result = MagicMock()

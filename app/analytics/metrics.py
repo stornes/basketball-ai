@@ -17,11 +17,13 @@ class GameMetrics:
         possession_events: list[PossessionEvent],
         tracks: list[TrackedPlayer] | None = None,
         fps: float = 30.0,
+        quarter_duration_sec: int = 600,
     ):
         self.shot_events = shot_events
         self.possession_events = possession_events
         self.tracks = tracks or []
         self.fps = fps
+        self.quarter_duration_sec = quarter_duration_sec
 
     @property
     def shots_attempted(self) -> int:
@@ -37,15 +39,16 @@ class GameMetrics:
         return self.shots_made / self.shots_attempted
 
     def shots_dataframe(self) -> pd.DataFrame:
-        """Shot events as a DataFrame."""
+        """Shot events as a DataFrame with team and quarter columns."""
         if not self.shot_events:
             return pd.DataFrame(columns=[
                 "frame_idx", "timestamp_sec", "shooter_track_id",
-                "court_x", "court_y", "outcome",
+                "court_x", "court_y", "outcome", "team", "quarter",
             ])
         rows = []
         for s in self.shot_events:
             cx, cy = s.court_position if s.court_position else (None, None)
+            quarter = int(s.timestamp_sec / self.quarter_duration_sec) + 1
             rows.append({
                 "frame_idx": s.frame_idx,
                 "timestamp_sec": s.timestamp_sec,
@@ -53,6 +56,8 @@ class GameMetrics:
                 "court_x": cx,
                 "court_y": cy,
                 "outcome": s.outcome.value,
+                "team": s.team,
+                "quarter": quarter,
             })
         return pd.DataFrame(rows)
 

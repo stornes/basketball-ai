@@ -14,9 +14,11 @@ def test_pipeline_runs_on_synthetic_video(mock_yolo_cls, synthetic_video_path, t
     mock_model = MagicMock()
     mock_yolo_cls.return_value = mock_model
 
-    def _make_tensor(val):
+    def _make_batch_tensor(vals):
+        """Create mock tensor supporting bulk .cpu().numpy()."""
+        arr = np.array(vals)
         m = MagicMock()
-        m.cpu.return_value.numpy.return_value = np.array(val)
+        m.cpu.return_value.numpy.return_value = arr
         return m
 
     def mock_predict(batch_inputs, **kwargs):
@@ -27,21 +29,13 @@ def test_pipeline_runs_on_synthetic_video(mock_yolo_cls, synthetic_video_path, t
             mock_result = MagicMock()
             mock_boxes = MagicMock()
 
-            mock_boxes.xyxy = [
-                _make_tensor([100, 200, 150, 320]),
-                _make_tensor([400, 180, 450, 300]),
-                _make_tensor([265, 135, 295, 165]),
-            ]
-            mock_boxes.conf = [
-                _make_tensor(0.9),
-                _make_tensor(0.85),
-                _make_tensor(0.7),
-            ]
-            mock_boxes.cls = [
-                _make_tensor(0),
-                _make_tensor(0),
-                _make_tensor(32),
-            ]
+            mock_boxes.xyxy = _make_batch_tensor([
+                [100, 200, 150, 320],
+                [400, 180, 450, 300],
+                [265, 135, 295, 165],
+            ])
+            mock_boxes.conf = _make_batch_tensor([0.9, 0.85, 0.7])
+            mock_boxes.cls = _make_batch_tensor([0, 0, 32])
             mock_boxes.__len__ = lambda self: 3
 
             mock_result.boxes = mock_boxes

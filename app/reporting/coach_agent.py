@@ -1,9 +1,10 @@
 """AI coaching agent using LangGraph and Google Gemini."""
 
-import json
 import os
 from pathlib import Path
 from typing import Protocol, TypedDict
+
+from app.prompts.loader import format_prompt, load_prompts
 
 
 class BaseLLMClient(Protocol):
@@ -51,49 +52,29 @@ def build_coaching_graph(llm_client: BaseLLMClient):
     """Build LangGraph coaching agent."""
     from langgraph.graph import END, StateGraph
 
+    prompts = load_prompts("coaching")
+
     def analyze_offense(state: CoachingState) -> dict:
-        summary = state["game_summary"]
-        prompt = (
-            "Analyze this basketball game's offensive performance. "
-            "Provide 3-5 specific coaching insights.\n\n"
-            f"Stats:\n{json.dumps(summary, indent=2)}\n\n"
-            "Focus on: shot selection, field goal percentage, scoring efficiency."
-        )
-        result = llm_client.generate(
-            prompt, system="You are an expert basketball coach."
-        )
+        cfg = prompts["analyze_offense"]
+        prompt = format_prompt(cfg["user"], stats=state["game_summary"])
+        result = llm_client.generate(prompt, system=cfg["system"])
         return {"offense_analysis": result}
 
     def analyze_defense(state: CoachingState) -> dict:
-        summary = state["game_summary"]
-        prompt = (
-            "Analyze this basketball game's defensive and possession performance. "
-            "Provide 3-5 coaching insights.\n\n"
-            f"Stats:\n{json.dumps(summary, indent=2)}\n\n"
-            "Focus on: turnovers, possession duration, defensive efficiency."
-        )
-        result = llm_client.generate(
-            prompt, system="You are an expert basketball coach."
-        )
+        cfg = prompts["analyze_defense"]
+        prompt = format_prompt(cfg["user"], stats=state["game_summary"])
+        result = llm_client.generate(prompt, system=cfg["system"])
         return {"defense_analysis": result}
 
     def synthesize_report(state: CoachingState) -> dict:
-        summary = state["game_summary"]
-        offense = state.get("offense_analysis", "")
-        defense = state.get("defense_analysis", "")
-
-        prompt = (
-            "Synthesize a comprehensive coaching report from these analyses.\n\n"
-            f"Game Summary:\n{json.dumps(summary, indent=2)}\n\n"
-            f"Offensive Analysis:\n{offense}\n\n"
-            f"Defensive Analysis:\n{defense}\n\n"
-            "Format as a markdown report with sections: "
-            "Executive Summary, Offensive Review, Defensive Review, "
-            "Key Recommendations, Areas for Improvement."
+        cfg = prompts["synthesize_report"]
+        prompt = format_prompt(
+            cfg["user"],
+            stats=state["game_summary"],
+            offense_analysis=state.get("offense_analysis", ""),
+            defense_analysis=state.get("defense_analysis", ""),
         )
-        report = llm_client.generate(
-            prompt, system="You are a head basketball coach writing a game report."
-        )
+        report = llm_client.generate(prompt, system=cfg["system"])
         return {"coaching_report": report}
 
     graph = StateGraph(CoachingState)
