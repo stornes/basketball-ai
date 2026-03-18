@@ -211,6 +211,16 @@ class TeamBoxScore:
     team_key: str = ""  # "home" or "away"
     players: list[PlayerBoxScore] = field(default_factory=list)
 
+    # Unattributed team-level stats from pipeline detections that couldn't
+    # be attributed to identified players. Added to team totals but NOT
+    # distributed to individual players. Shows the team did have these
+    # events even though we don't know who made them.
+    unattributed_ast: int = 0
+    unattributed_stl: int = 0
+    unattributed_orb: int = 0
+    unattributed_drb: int = 0
+    unattributed_to: int = 0
+
     # ── Aggregated totals ──
 
     @property
@@ -243,27 +253,27 @@ class TeamBoxScore:
 
     @property
     def total_orb(self) -> int:
-        return sum(p.orb for p in self.players)
+        return sum(p.orb for p in self.players) + self.unattributed_orb
 
     @property
     def total_drb(self) -> int:
-        return sum(p.drb for p in self.players)
+        return sum(p.drb for p in self.players) + self.unattributed_drb
 
     @property
     def total_reb(self) -> int:
-        return sum(p.reb for p in self.players)
+        return sum(p.reb for p in self.players) + self.unattributed_orb + self.unattributed_drb
 
     @property
     def total_ast(self) -> int:
-        return sum(p.ast for p in self.players)
+        return sum(p.ast for p in self.players) + self.unattributed_ast
 
     @property
     def total_to(self) -> int:
-        return sum(p.to for p in self.players)
+        return sum(p.to for p in self.players) + self.unattributed_to
 
     @property
     def total_stl(self) -> int:
-        return sum(p.stl for p in self.players)
+        return sum(p.stl for p in self.players) + self.unattributed_stl
 
     @property
     def total_blk(self) -> int:
@@ -381,6 +391,7 @@ class BoxScoreCompiler:
         assist_events: list[AssistEvent] | None = None,
         steal_events: list[StealEvent] | None = None,
         sample_rate: int = 1,
+        jersey_map: dict[int, int] | None = None,
     ) -> GameBoxScore:
         """Build a GameBoxScore from pipeline event data."""
         # Accumulate per-player stats keyed by (team, player_id).
@@ -389,6 +400,37 @@ class BoxScoreCompiler:
         players: dict[tuple[str, int], PlayerBoxScore] = {}
         # Map track_id → canonical key for lookups by other detectors
         _track_to_key: dict[tuple[str, int], tuple[str, int]] = {}
+
+        # Pre-seed track→jersey mappings from VLM resolution.
+        # This allows assist/rebound/steal events on resolved tracks
+        # to be attributed to the correct player even if that track
+        # never had a shot event.
+        _jersey_map = jersey_map or {}
+        if _jersey_map:
+            # Build track_id→team from all events that carry team info
+            track_teams: dict[int, str] = {}
+            for s in shot_events:
+                if s.shooter_track_id is not None and s.team:
+                    track_teams[int(s.shooter_track_id)] = s.team
+            for a in (assist_events or []):
+                if a.assister_team:
+                    track_teams[int(a.assister_track_id)] = a.assister_team
+            for r in (rebound_events or []):
+                if r.rebounder_team:
+                    track_teams[int(r.rebounder_track_id)] = r.rebounder_team
+            for st in (steal_events or []):
+                if st.stealer_team:
+                    track_teams[int(st.stealer_track_id)] = st.stealer_team
+            # Also get teams from tracks directly
+            for t in tracks:
+                tid = t.track_id if hasattr(t, "track_id") else t.get("track_id")
+                tm = t.team if hasattr(t, "team") else t.get("team")
+                if tid is not None and tm:
+                    track_teams[int(tid)] = tm
+
+            for track_id, jersey_num in _jersey_map.items():
+                team_key = track_teams.get(track_id, "unknown")
+                _track_to_key[(team_key, track_id)] = (team_key, jersey_num)
 
         def _get_player(
             team: str | None,

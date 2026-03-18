@@ -1,0 +1,251 @@
+# HOOPS-VISION-2026: v5.0.0 — Assist Detection Architecture
+# Purpose: Spatial mapping, pose-driven event detection, decoupled pipeline
+# Parent: v2.0.0-box-score-statistics.yaml
+# Date: 2026-03-18
+# Status: PLANNED
+# Principle: Solve geometry first. Derive possession logically. Extract assists deterministically.
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "5.0.0"
+  status: "PLANNED"
+  standard: "Assist Detection from Side-View Basketball Video"
+
+# ═══════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═══════════════════════════════════════════════════════════════════
+overview:
+  problem: |
+    Detect and attribute assists from a single side-view video using
+    consistent, explainable, and spatially aware logic.
+  definition: |
+    Assist(A -> B) occurs when:
+    - Player A passes the ball to Player B.
+    - Player B scores directly from that possession, constrained by
+      a maximum number of dribbles or physical steps.
+    - No other player gains control in between.
+  constraints:
+    - "Single camera, side view (XbootGo Falcon)"
+    - "Partial occlusion expected"
+    - "Ball is small and fast-moving"
+    - "No external tracking data"
+    - "Variable lighting and resolution"
+  core_signals:
+    - "Court homography (fixed reference points to map 2D to top-down plane)"
+    - "Ball position per frame (projected onto top-down plane)"
+    - "Player identity and skeletal pose over time"
+    - "Ball possession state (Player Control, Loose Ball, Flight)"
+    - "Shot outcome (made / missed)"
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM REQUIREMENTS
+# ═══════════════════════════════════════════════════════════════════
+system_requirements:
+
+  AR1_detect_entities:
+    description: "Detect players (bounding boxes + skeletal pose), ball, hoop, court lines"
+    current_state: "Partial — YOLO detects players + ball + basket. No skeletal pose."
+    gap: "Pose estimation model needed (MediaPipe or MMPose)"
+    phase: 5
+
+  AR2_spatial_mapping:
+    description: |
+      Apply homography matrix using court lines to project 2D video coordinates
+      onto a top-down 2D court template. Calculate ALL distance thresholds on
+      this projected plane to resolve depth ambiguity.
+    current_state: "court_mapper.py projects to top-down plane, but assist detector uses pixel proximity"
+    gap: "Switch proximity calculations to projected-plane distances"
+    phase: 4
+
+  AR3_causal_tracking:
+    description: |
+      Maintain player IDs across frames. Use causal filters (Kalman) to track
+      continuous ball and player trajectories.
+    current_state: "IoU tracker only. 149 fragments for 10 players. No Kalman filter."
+    gap: "Track merger (phase 2) then Kalman (future)"
+    phase: 2
+
+  AR4_team_classification:
+    description: "Group players by jersey colour"
+    current_state: "K-means jersey color classification — working"
+    gap: "None"
+    phase: done
+
+  AR5_possession_states:
+    description: |
+      Explicit state machine: Player Control, Loose Ball, or Flight.
+      Player Control assigned based on: top-down spatial proximity,
+      trajectory alignment between player and ball, absence of Loose Ball state.
+    current_state: "Binary possession only (player/turnover). No Loose Ball or Flight."
+    gap: "Implement three-state possession model"
+    phase: 3
+
+  AR6_event_detection:
+    description: |
+      Pass: biomechanical throwing pose + ball release + state change to Flight.
+      Reception: catching pose + state change to Player Control.
+      Shot: shooting pose + ball follows upward arc toward hoop.
+      Made basket: ball crosses rim plane downward.
+      Rebound/Turnover: state changes from Flight or Loose Ball to new player
+      without a preceding pass.
+    current_state: "Shot arc detection works. No biomechanical pose. No catching/release detection."
+    gap: "Pose estimation (phase 5) enables biomechanical events"
+    phase: 5
+
+  AR7_assist_attribution:
+    description: |
+      Assist(A -> B) requires:
+      - Pass(A -> B)
+      - Reception(B)
+      - Shot(B) within action limits (<=3 dribbles or <=4 seconds)
+      - Shot is made
+      - No third-player possession or defensive deflection
+    current_state: "Two-tier detector (pass-based + proximity). No dribble counting."
+    gap: "Dribble counting needs higher frame rate. State machine (phase 3) improves precision."
+    phase: 3
+
+  AR8_output:
+    description: |
+      Continuous JSON time-series of coordinates and classified events.
+      Event timeline with timestamps. Assist attribution with confidence scores.
+      Annotated video for verification.
+    current_state: "JSON box score + text. No continuous time-series. No annotated video."
+    gap: "Time-series output follows from pipeline decoupling (phase 1)"
+    phase: 1
+
+# ═══════════════════════════════════════════════════════════════════
+# DESIGN REQUIREMENTS
+# ═══════════════════════════════════════════════════════════════════
+design_requirements:
+
+  DR1_decoupled_pipeline:
+    description: |
+      Separate the probabilistic vision model from the deterministic rule engine.
+      Video -> Vision Model (outputs JSON) -> Deterministic Rule Engine
+      (calculates possession and assists) -> Output.
+    current_state: "Monolithic 713-line run(). Vision and rules interleaved."
+    gap: "Refactor into stage classes with serializable intermediate state"
+    phase: 1
+    priority: CRITICAL
+
+  DR2_deterministic_logic:
+    description: |
+      All assist decisions must execute entirely via a rule chain parsing
+      the JSON time-series. Never modify the vision model to change a
+      basketball rule.
+    current_state: "Assist detector is deterministic but consumes events inline, not from JSON."
+    gap: "Follows from DR1 decoupling"
+    phase: 1
+
+  DR3_failure_handling:
+    description: |
+      Missing ball detection: interpolate trajectory using player pose and biomechanics.
+      Identity switch: reconcile using court position and trajectory continuity.
+      Occlusion: maintain last known state with spatial decay on top-down projection.
+    current_state: "No interpolation, no spatial decay, no identity reconciliation."
+    gap: "Implement failure recovery strategies"
+    phase: 3
+
+  DR4_performance:
+    description: "Process full match <=2x video duration. >=75% assist precision (MVP)."
+    current_state: "Pipeline is ~5x video duration. Assist precision unknown (no ground truth labels)."
+    gap: "Optimization is a separate effort. Precision needs labelled test set."
+    phase: future
+
+  DR5_extensibility:
+    description: "Support multi-camera input by fusing JSON coordinate streams before the rule engine."
+    current_state: "Single camera only."
+    gap: "Not applicable to current setup. Future consideration."
+    phase: future
+
+# ═══════════════════════════════════════════════════════════════════
+# ACCEPTANCE CRITERIA
+# ═══════════════════════════════════════════════════════════════════
+acceptance_criteria:
+  - "Vision model outputs structured JSON: coordinates, poses, basic events"
+  - "Spatial mapping correctly identifies player proximity despite 2D occlusion"
+  - "Deterministic rule engine accurately calculates possession states from JSON"
+  - "Assist attribution matches manual labelling >=75%"
+  - "Every assist is traceable to a clear event chain in system logs"
+  - "System handles dribbling and loose balls without triggering false assists"
+
+# ═══════════════════════════════════════════════════════════════════
+# ADOPTION PLAN (phased)
+# ═══════════════════════════════════════════════════════════════════
+adoption_plan:
+  principle: |
+    Solve the geometry first.
+    Derive possession logically.
+    Extract assists deterministically.
+
+  phase_1_pipeline_decoupling:
+    requirements: [DR1, DR2, AR8]
+    description: |
+      Refactor run_analysis.py into stage classes with serializable JSON
+      intermediate state. Each stage reads JSON input, writes JSON output.
+      The rule engine (possession, assists, awards) operates entirely on
+      the JSON time-series, never on video frames.
+    files:
+      - "app/pipeline/stages/*.py — one class per stage"
+      - "app/pipeline/orchestrator.py — thin coordinator"
+      - "data/outputs/{version}/stages/*.json — intermediate outputs"
+    impact: "Unblocks all iteration. Can re-run rules without reprocessing video."
+    effort: "Medium (refactor, no new algorithms)"
+
+  phase_2_track_merger:
+    requirements: [AR3]
+    description: |
+      Post-processing track merger between detection and VLM resolution.
+      Merges same-team fragments that don't overlap in time and are spatially
+      close at boundaries. Reduces ~149 fragments to ~10-15 per team.
+    files:
+      - "app/tracking/track_merger.py — ~200 lines"
+    impact: "Highest single improvement. Fixes minutes, assists, rebounds, plus/minus."
+    effort: "Low (pure post-processing, works on saved player_tracks.json)"
+
+  phase_3_possession_state_machine:
+    requirements: [AR5, AR7, DR3]
+    description: |
+      Replace binary possession with three-state model:
+      PLAYER_CONTROL, LOOSE_BALL, FLIGHT.
+      Flight state prevents false rebounds on made shots.
+      Loose Ball state distinguishes turnovers from deflections.
+      Adds failure handling: spatial decay, trajectory interpolation.
+    files:
+      - "app/events/possession_state.py — state machine"
+      - "app/events/possession.py — refactor to use state machine"
+    impact: "Fixes rebound inflation. Improves assist precision."
+    effort: "Medium"
+
+  phase_4_projected_distances:
+    requirements: [AR2]
+    description: |
+      Switch all proximity calculations (possession, assists, rebounds, steals)
+      from pixel distance to projected top-down court distance.
+      Resolves depth ambiguity from side-view camera.
+    files:
+      - "app/events/assist_detector.py — use court coordinates"
+      - "app/events/possession.py — use court coordinates"
+      - "app/events/rebound_detector.py — use court coordinates"
+    impact: "Eliminates false positives from depth compression."
+    effort: "Low (court_mapper already provides the projection)"
+
+  phase_5_pose_estimation:
+    requirements: [AR1, AR6]
+    description: |
+      Add skeletal pose estimation (MediaPipe or MMPose).
+      Enables biomechanical event detection: throwing pose for passes,
+      catching pose for receptions, shooting pose for shots.
+      Biggest accuracy gain for shot and pass detection.
+    files:
+      - "app/vision/pose_estimator.py — new module"
+      - "app/events/shot_detector.py — add pose-based detection"
+      - "app/events/pass_detector.py — add pose-based detection"
+    impact: "Resolves shot detector missing close-range plays (layups, put-backs)."
+    effort: "High (new model, new integration, retraining)"
+
+  deferred:
+    - "DR4: Performance optimization (<=2x realtime)"
+    - "DR5: Multi-camera fusion"
+    - "AR7: Dribble counting (needs higher frame rate than 5fps)"
+    - "AR8: Annotated video output"

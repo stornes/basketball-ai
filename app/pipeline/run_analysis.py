@@ -357,14 +357,29 @@ class PipelineOrchestrator:
         # Stage 3.6: Resolve jersey numbers via VLM
         print("Stage 3.6: Resolving jersey numbers via VLM...")
         print(f"  Collected crops from {jersey_reader.tracks_with_crops} tracks")
-        # Resolve ALL shooter tracks (made + missed) for FGA attribution
+        # Resolve ALL event track IDs: shooters + assisters + rebounders + stealers
         shooter_ids = {
             int(s.shooter_track_id)
             for s in result.shot_events
             if s.shooter_track_id is not None
         }
-        print(f"  Resolving {len(shooter_ids)} shooter tracks (all outcomes)...")
-        jersey_map = jersey_reader.resolve(track_ids=shooter_ids)
+        assister_ids = {
+            int(a.assister_track_id)
+            for a in assist_detector.events
+        }
+        rebounder_ids = {
+            int(r.rebounder_track_id)
+            for r in rebound_detector.events
+        }
+        stealer_ids = {
+            int(s.stealer_track_id)
+            for s in steal_events
+        }
+        all_event_ids = shooter_ids | assister_ids | rebounder_ids | stealer_ids
+        print(f"  Resolving {len(all_event_ids)} event tracks "
+              f"({len(shooter_ids)} shooters, {len(assister_ids)} assisters, "
+              f"{len(rebounder_ids)} rebounders, {len(stealer_ids)} stealers)...")
+        jersey_map = jersey_reader.resolve(track_ids=all_event_ids)
         print(f"  VLM: {jersey_reader.total_readings} readings from "
               f"{jersey_reader.tracks_with_readings} tracks → "
               f"{len(jersey_map)} resolved jersey numbers")
@@ -390,14 +405,38 @@ class PipelineOrchestrator:
                 _json.dump(desc_data, f, indent=2)
             print(f"  Saved {len(descriptions)} player descriptions")
 
-        # Stage 3.6b: Sherlock deductive pass for unresolved tracks (all outcomes)
+        # Stage 3.6b: Sherlock deductive pass for ALL unresolved event tracks
+        # Build a combined list of unresolved tracks from shots + assists + rebounds + steals
+        # Sherlock expects objects with .shooter_track_id and .team attributes
         unresolved_shots = [
             s for s in result.shot_events
             if s.shooter_track_id is not None
             and s.jersey_number is None
         ]
-        if roster and unresolved_shots:
-            print(f"Stage 3.6b: Sherlock deduction on {len(unresolved_shots)} unresolved tracks...")
+        # Add assist/rebound/steal tracks as pseudo-shot objects for Sherlock
+        from types import SimpleNamespace
+        unresolved_event_tracks = list(unresolved_shots)
+        for a in assist_detector.events:
+            if int(a.assister_track_id) not in jersey_map:
+                unresolved_event_tracks.append(SimpleNamespace(
+                    shooter_track_id=a.assister_track_id,
+                    team=a.assister_team,
+                ))
+        for r in rebound_detector.events:
+            if int(r.rebounder_track_id) not in jersey_map:
+                unresolved_event_tracks.append(SimpleNamespace(
+                    shooter_track_id=r.rebounder_track_id,
+                    team=r.rebounder_team,
+                ))
+        for s in steal_events:
+            if int(s.stealer_track_id) not in jersey_map:
+                unresolved_event_tracks.append(SimpleNamespace(
+                    shooter_track_id=s.stealer_track_id,
+                    team=s.stealer_team,
+                ))
+        if roster and unresolved_event_tracks:
+            print(f"Stage 3.6b: Sherlock deduction on {len(unresolved_event_tracks)} unresolved tracks "
+                  f"({len(unresolved_shots)} shooters + {len(unresolved_event_tracks) - len(unresolved_shots)} event tracks)...")
             sherlock_map, sherlock_desc = sherlock_resolve(
                 video_path=video_path,
                 all_tracks=all_tracks,
@@ -410,7 +449,7 @@ class PipelineOrchestrator:
                 ]},
                 descriptions=descriptions,
                 jersey_map=jersey_map,
-                unresolved_shots=unresolved_shots,
+                unresolved_shots=unresolved_event_tracks,
                 vlm_backend=self.config.vlm_backend,
             )
             # Merge results
@@ -503,6 +542,7 @@ class PipelineOrchestrator:
             assist_events=assist_detector.events,
             steal_events=steal_detector.events,
             sample_rate=self.config.frame_sample_rate,
+            jersey_map=jersey_map,
         )
         game_box_score.video_path = video_path
         game_box_score.detection_summary = {

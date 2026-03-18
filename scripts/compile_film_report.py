@@ -69,27 +69,34 @@ def clean_box_score(game: GameBoxScore, data_dir: Path = Path(".")) -> GameBoxSc
         removed_fga = sum(p.fga for p in removed)
         removed_fg = sum(p.fg for p in removed)
 
-        # Log what was dropped. No redistribution. If the pipeline can't
-        # attribute a stat to an identified player, that stat is dropped.
-        # Principle: you see it and count it. No estimation allowed.
+        # Store unattributed stats on the team. The pipeline detected these
+        # events but couldn't identify which player made them. They appear in
+        # team totals but NOT on any individual player row. Honest: the team
+        # had these events, we don't know who.
         removed_ast = sum(p.ast for p in removed)
         removed_stl = sum(p.stl for p in removed)
         removed_orb = sum(p.orb for p in removed)
         removed_drb = sum(p.drb for p in removed)
         removed_to = sum(p.to for p in removed)
 
+        team.unattributed_ast = removed_ast
+        team.unattributed_stl = removed_stl
+        team.unattributed_orb = removed_orb
+        team.unattributed_drb = removed_drb
+        team.unattributed_to = removed_to
+
         if removed_ast + removed_stl + removed_orb + removed_drb + removed_to > 0:
-            print(f"  {team.team_name}: dropped unattributed stats: "
+            print(f"  {team.team_name}: unattributed team stats: "
                   f"{removed_ast} AST, {removed_stl} STL, {removed_orb} ORB, {removed_drb} DRB, {removed_to} TO")
 
         game.detection_summary[f"{team.team_key}_unidentified_fga"] = removed_fga
         game.detection_summary[f"{team.team_key}_unidentified_fg"] = removed_fg
         game.detection_summary[f"{team.team_key}_removed_count"] = len(removed)
-        game.detection_summary[f"{team.team_key}_dropped_ast"] = removed_ast
-        game.detection_summary[f"{team.team_key}_dropped_stl"] = removed_stl
-        game.detection_summary[f"{team.team_key}_dropped_orb"] = removed_orb
-        game.detection_summary[f"{team.team_key}_dropped_drb"] = removed_drb
-        game.detection_summary[f"{team.team_key}_dropped_to"] = removed_to
+        game.detection_summary[f"{team.team_key}_unattributed_ast"] = removed_ast
+        game.detection_summary[f"{team.team_key}_unattributed_stl"] = removed_stl
+        game.detection_summary[f"{team.team_key}_unattributed_orb"] = removed_orb
+        game.detection_summary[f"{team.team_key}_unattributed_drb"] = removed_drb
+        game.detection_summary[f"{team.team_key}_unattributed_to"] = removed_to
 
         team.players = roster_valid
 
