@@ -25,7 +25,7 @@ def cli(ctx):
 @click.option("--sample-rate", default=6, help="Process every Nth frame (6=fast, 3=detailed)")
 @click.option("--no-clips", is_flag=True, help="Skip clip generation")
 @click.option("--no-agent", is_flag=True, help="Skip AI coaching report")
-@click.option("--model", default="yolov8n.pt", help="YOLO model weights path")
+@click.option("--model", default=None, help="YOLO model weights path (default: from PipelineConfig)")
 @click.option(
     "--class-map",
     default=None,
@@ -82,7 +82,7 @@ def analyse(video_path, output_dir, device, sample_rate, no_clips, no_agent, mod
 
     config = PipelineConfig(
         device=device if device != "auto" else detect_device(),
-        yolo_model=model,
+        yolo_model=model if model else "yolov8m.pt",
         frame_sample_rate=sample_rate,
         output_dir=output_dir,
         enable_clips=not no_clips,
