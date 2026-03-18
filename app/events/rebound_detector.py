@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.events.event_types import ShotEvent, ShotOutcome
+from app.events.possession_state import BallState
 from app.tracking.tracker import TrackedPlayer
 from app.vision.detection_types import Detection
 
@@ -59,11 +60,31 @@ class ReboundDetector:
         self._max_frames = int(self.REBOUND_WINDOW_SEC * fps)
         self.events: list[ReboundEvent] = []
 
-    def on_missed_shot(self, shot: ShotEvent) -> None:
-        """Register a missed shot to start rebound detection."""
-        if shot.outcome in (ShotOutcome.MISSED, ShotOutcome.ATTEMPTED):
-            self._pending_miss = shot
-            self._frames_since_miss = 0
+    def on_missed_shot(
+        self,
+        shot: ShotEvent,
+        ball_state: BallState | None = None,
+    ) -> None:
+        """Register a missed shot to start rebound detection.
+
+        Args:
+            shot: The shot event. Only MISSED/ATTEMPTED outcomes are registered.
+            ball_state: Optional current BallState from PossessionStateMachine.
+                When provided, the shot is only registered if ball_state is FLIGHT
+                (the ball was visibly airborne). This prevents false rebound
+                detection on made shots where ball_state would be LOOSE_BALL.
+                When None (default), the original behaviour applies — register
+                based on shot outcome alone.
+        """
+        if shot.outcome not in (ShotOutcome.MISSED, ShotOutcome.ATTEMPTED):
+            return
+
+        # If state machine gating is active, require the ball to be in FLIGHT
+        if ball_state is not None and ball_state != BallState.FLIGHT:
+            return
+
+        self._pending_miss = shot
+        self._frames_since_miss = 0
 
     def update(
         self,
