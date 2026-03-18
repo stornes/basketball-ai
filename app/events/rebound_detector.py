@@ -10,8 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+import numpy as np
+
 from app.events.event_types import ShotEvent, ShotOutcome
 from app.events.possession_state import BallState
+from app.events.spatial import court_distance
 from app.tracking.tracker import TrackedPlayer
 from app.vision.detection_types import Detection
 
@@ -53,8 +56,26 @@ class ReboundDetector:
     # Minimum frames after miss before checking (ball still in air)
     MIN_DELAY_FRAMES = 5
 
-    def __init__(self, fps: float):
+    def __init__(
+        self,
+        fps: float,
+        homography: np.ndarray | None = None,
+        rebound_proximity_ft: float | None = None,
+    ) -> None:
+        """Initialise the rebound detector.
+
+        Args:
+            fps: Frames per second of the video.
+            homography: Optional 3x3 perspective transform from CourtMapper.H.
+                When provided, proximity is evaluated in court feet.
+            rebound_proximity_ft: Court-plane distance (feet) for rebound
+                detection. Only used when homography is supplied.
+                Typical value: 4-6 feet. Falls back to REBOUND_PROXIMITY_PX
+                when None or when no homography is available.
+        """
         self.fps = fps
+        self.homography = homography
+        self.rebound_proximity_ft = rebound_proximity_ft
         self._pending_miss: ShotEvent | None = None
         self._frames_since_miss = 0
         self._max_frames = int(self.REBOUND_WINDOW_SEC * fps)
@@ -112,17 +133,29 @@ class ReboundDetector:
 
         bx, by = ball.bbox.center
 
+        # Determine whether to use court-plane projection
+        use_court = (
+            self.homography is not None
+            and self.rebound_proximity_ft is not None
+        )
+        active_threshold = (
+            self.rebound_proximity_ft if use_court else self.REBOUND_PROXIMITY_PX
+        )
+
         # Find closest player to ball
         closest = None
         min_dist = float("inf")
         for player in players:
             px, py = player.bbox.center
-            dist = ((px - bx) ** 2 + (py - by) ** 2) ** 0.5
+            dist = court_distance(
+                (bx, by), (px, py),
+                homography=self.homography if use_court else None,
+            )
             if dist < min_dist:
                 min_dist = dist
                 closest = player
 
-        if closest is None or min_dist > self.REBOUND_PROXIMITY_PX:
+        if closest is None or min_dist > active_threshold:
             return None
 
         # Rebound detected

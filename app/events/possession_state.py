@@ -25,6 +25,10 @@ from __future__ import annotations
 import math
 from enum import Enum
 
+import numpy as np
+
+from app.events.spatial import court_distance
+
 
 class BallState(Enum):
     PLAYER_CONTROL = "player_control"
@@ -65,9 +69,27 @@ class PossessionStateMachine:
         self,
         fps: float,
         proximity_threshold_px: float = 80.0,
+        homography: np.ndarray | None = None,
+        proximity_threshold_ft: float | None = None,
     ) -> None:
+        """Initialise the state machine.
+
+        Args:
+            fps: Frames per second of the video.
+            proximity_threshold_px: Pixel-space distance within which a player
+                is considered near the ball. Used when no homography is provided
+                or as a fallback if projection fails.
+            homography: Optional 3x3 perspective transform from CourtMapper.H.
+                When provided, proximity is evaluated in court feet instead of
+                pixels.
+            proximity_threshold_ft: Court-plane distance (feet) within which a
+                player is considered near the ball. Only meaningful when a
+                homography is supplied. Defaults to None (pixel threshold used).
+        """
         self.fps = fps
         self.proximity_threshold_px = proximity_threshold_px
+        self.homography = homography
+        self.proximity_threshold_ft = proximity_threshold_ft
 
         self.state: BallState = BallState.UNKNOWN
         self.controlling_player: int | None = None
@@ -162,12 +184,26 @@ class PossessionStateMachine:
         if velocity is not None and velocity >= FLIGHT_SPEED_THRESHOLD_PX:
             return BallState.FLIGHT, None
 
+        # Determine active threshold and whether to use court projection
+        use_court = (
+            self.homography is not None
+            and self.proximity_threshold_ft is not None
+        )
+        active_threshold = (
+            self.proximity_threshold_ft
+            if use_court
+            else self.proximity_threshold_px
+        )
+
         # Find players within proximity threshold: (dist, track_id)
         nearby: list[tuple[float, int]] = []
         for p in players:
             cx, cy = p["bbox_center"]
-            dist = math.hypot(cx - ball_pos[0], cy - ball_pos[1])
-            if dist <= self.proximity_threshold_px:
+            dist = court_distance(
+                ball_pos, (cx, cy),
+                homography=self.homography if use_court else None,
+            )
+            if dist <= active_threshold:
                 nearby.append((dist, p["track_id"]))
 
         if not nearby:
