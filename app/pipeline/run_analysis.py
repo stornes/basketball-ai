@@ -334,6 +334,34 @@ class PipelineOrchestrator:
         bih_count = len(ball_hands_detector.transitions)
         print(f"  Ball-in-hands transitions: {bih_count}, passes detected: {pass_count}")
 
+        # Stage 3.5d: Merge fragmented tracks
+        from app.tracking.track_merger import merge_tracks
+        all_tracks_as_dicts = [
+            {
+                "track_id": t.track_id,
+                "frame_idx": t.frame_idx,
+                "bbox": [float(t.bbox.x1), float(t.bbox.y1), float(t.bbox.x2), float(t.bbox.y2)],
+                "team": t.team,
+            }
+            for t in all_tracks
+        ]
+        merge_map = merge_tracks(all_tracks_as_dicts, meta.fps)
+        if merge_map:
+            merged_count = len(merge_map)
+            before_ids = len({t.track_id for t in all_tracks})
+            for t in all_tracks:
+                t.track_id = merge_map.get(t.track_id, t.track_id)
+            after_ids = len({t.track_id for t in all_tracks})
+            for s in result.shot_events:
+                if s.shooter_track_id is not None:
+                    s.shooter_track_id = merge_map.get(int(s.shooter_track_id), int(s.shooter_track_id))
+            for p in result.possession_events:
+                p.player_track_id = merge_map.get(p.player_track_id, p.player_track_id)
+            print(f"Stage 3.5d: Track merger: {before_ids} -> {after_ids} unique IDs "
+                  f"({merged_count} fragments merged)")
+        else:
+            print("Stage 3.5d: Track merger: no fragments merged")
+
         # Stage 3.5c: Detect assists and steals from possession/shot/pass events
         assist_detector = AssistDetector(meta.fps)
         steal_detector = StealDetector(meta.fps)

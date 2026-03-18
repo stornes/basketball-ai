@@ -106,6 +106,15 @@ def _box_score_tables(game: GameBoxScore) -> list[dict]:
         # Impact lines as text below the table
         impact_text = "**Impact Lines** (PTS / REB / AST / STL / BLK / TO)\n\n" + "\n".join(impact_lines)
 
+        # Note unattributed stats if they exist
+        unattr = []
+        if t.unattributed_ast: unattr.append(f"{t.unattributed_ast} AST")
+        if t.unattributed_stl: unattr.append(f"{t.unattributed_stl} STL")
+        if t.unattributed_orb + t.unattributed_drb: unattr.append(f"{t.unattributed_orb + t.unattributed_drb} REB")
+        if t.unattributed_to: unattr.append(f"{t.unattributed_to} TO")
+        if unattr:
+            impact_text += f"\n\n*Team totals include {', '.join(unattr)} detected but not attributed to individual players.*"
+
         # Use body array format so table renders BEFORE content.
         # Legacy format renders content first, then table (wrong order).
         subsections.append({
