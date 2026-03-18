@@ -6,6 +6,7 @@ import pandas as pd
 
 from app.events.event_types import PossessionEvent, ShotEvent, ShotOutcome
 from app.tracking.tracker import TrackedPlayer
+from app.vision.scoreboard_ocr import timestamp_to_quarter
 
 
 class GameMetrics:
@@ -18,12 +19,16 @@ class GameMetrics:
         tracks: list[TrackedPlayer] | None = None,
         fps: float = 30.0,
         quarter_duration_sec: int = 600,
+        num_quarters: int | None = None,
+        quarter_ranges: list[tuple[float, float]] | None = None,
     ):
         self.shot_events = shot_events
         self.possession_events = possession_events
         self.tracks = tracks or []
         self.fps = fps
         self.quarter_duration_sec = quarter_duration_sec
+        self.num_quarters = num_quarters
+        self.quarter_ranges = quarter_ranges  # [(start_sec, end_sec), ...] from scoreboard OCR
 
     @property
     def shots_attempted(self) -> int:
@@ -44,11 +49,19 @@ class GameMetrics:
             return pd.DataFrame(columns=[
                 "frame_idx", "timestamp_sec", "shooter_track_id",
                 "court_x", "court_y", "outcome", "team", "quarter",
+                "jersey_number",
             ])
         rows = []
         for s in self.shot_events:
             cx, cy = s.court_position if s.court_position else (None, None)
-            quarter = int(s.timestamp_sec / self.quarter_duration_sec) + 1
+            if self.quarter_ranges:
+                # Use scoreboard-detected quarter boundaries
+                quarter = timestamp_to_quarter(s.timestamp_sec, self.quarter_ranges)
+            else:
+                # Fallback: formula-based (assumes game time = video time)
+                quarter = int(s.timestamp_sec / self.quarter_duration_sec) + 1
+                if self.num_quarters is not None:
+                    quarter = min(quarter, self.num_quarters)
             rows.append({
                 "frame_idx": s.frame_idx,
                 "timestamp_sec": s.timestamp_sec,
@@ -58,6 +71,7 @@ class GameMetrics:
                 "outcome": s.outcome.value,
                 "team": s.team,
                 "quarter": quarter,
+                "jersey_number": s.jersey_number,
             })
         return pd.DataFrame(rows)
 

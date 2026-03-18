@@ -18,11 +18,25 @@ class VideoMetadata:
     duration_sec: float
 
 
+def _scaled_size(
+    native_w: int, native_h: int, target_w: int,
+) -> tuple[int, int] | None:
+    """Return (width, height) scaled to target_w preserving aspect ratio.
+
+    Returns None if no scaling is needed (native already <= target).
+    """
+    if target_w and native_w > target_w:
+        scale = target_w / native_w
+        return target_w, int(native_h * scale)
+    return None
+
+
 class VideoLoader:
     """Context manager for reading video files via OpenCV."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, decode_width: int = 0):
         self.path = str(path)
+        self._decode_width = decode_width  # target width; 0 = native
         self._cap: cv2.VideoCapture | None = None
 
     def __enter__(self):
@@ -36,13 +50,22 @@ class VideoLoader:
             self._cap.release()
 
     def metadata(self) -> VideoMetadata:
-        """Get video metadata."""
+        """Get video metadata.
+
+        If decode_width is set, width/height reflect the decode resolution
+        (what frames() actually yields), not the native video resolution.
+        """
         cap = self._ensure_cap()
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        native_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        native_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         duration = frame_count / fps if fps > 0 else 0.0
+
+        # Compute effective decode resolution
+        scaled = _scaled_size(native_w, native_h, self._decode_width)
+        width, height = scaled if scaled else (native_w, native_h)
+
         return VideoMetadata(
             path=self.path,
             frame_count=frame_count,
@@ -66,6 +89,13 @@ class VideoLoader:
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         q: queue.Queue = queue.Queue(maxsize=30)
 
+        # Pre-compute decode target size once
+        target_size = _scaled_size(
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            self._decode_width,
+        )
+
         def _reader():
             idx = 0
             while True:
@@ -75,6 +105,9 @@ class VideoLoader:
                     break
                 if idx % sample_rate == 0:
                     ret, frame = cap.retrieve()
+                    if ret and target_size is not None:
+                        frame = cv2.resize(frame, target_size,
+                                           interpolation=cv2.INTER_AREA)
                     q.put((ret, idx, frame))
                 idx += 1
 

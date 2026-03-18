@@ -1,0 +1,33 @@
+{
+  "home": {
+    "name": "Notodden Thunders (D)",
+    "players": [
+      {"number": 1, "name": "Rønningen, Philip Castaritas", "captain": false},
+      {"number": 4, "name": "Mesfin, Asier Fitsum", "captain": true},
+      {"number": 5, "name": "Berg-Jacobsen, Jakob Sollid", "captain": false},
+      {"number": 7, "name": "Kahindo, Christelle", "captain": false},
+      {"number": 13, "name": "Grenzer-Jamtveit, Nore", "captain": false},
+      {"number": 15, "name": "Karlsen, Rebekka Urdalen", "captain": false},
+      {"number": 22, "name": "Grenzer-Jamtveit, Vårinn", "captain": false},
+      {"number": 24, "name": "Ndayisenga, Jamal", "captain": false},
+      {"number": 27, "name": "Bakke, Mathias", "captain": false},
+      {"number": 30, "name": "Stenersen, Eirik Andreas Brokke", "captain": false},
+      {"number": 34, "name": "Eie, Magnus Buchacz", "captain": false}
+    ],
+    "staff": ["Duncikas, Dainius", "Mesfin, Yottam Fitsum"],
+    "scores_cumulative": [18, 38, 57, 69]
+  },
+  "away": {
+    "name": "EB-85",
+    "players": [
+      {"number": 4, "name": "Stornes, Victor", "captain": false},
+      {"number": 6, "name": "Grønneberg, Ulrik Holm", "captain": true},
+      {"number": 23, "name": "Haugen, Jesper", "captain": false},
+      {"number": 32, "name": "Owren, Oskar Robles", "captain": false},
+      {"number": 36, "name": "Sebastian Sjödahl, David Gustaf", "captain": false},
+      {"number": 37, "name": "Moxness, Ludvig Hammer", "captain": false}
+    ],
+    "staff": ["Haugen, Gard"],
+    "scores_cumulative": [29, 41, 60, 82]
+  }
+}

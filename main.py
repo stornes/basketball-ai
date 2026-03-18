@@ -1,6 +1,11 @@
 """Basketball Video Analysis Platform - CLI entrypoint."""
 
+from pathlib import Path
+
 import click
+from dotenv import load_dotenv
+
+load_dotenv(override=True)  # Load API keys from .env (override empty shell vars)
 
 from app.pipeline.pipeline_config import PipelineConfig, detect_device
 
@@ -17,7 +22,7 @@ def cli(ctx):
 @click.argument("video_path", type=click.Path(exists=True))
 @click.option("--output-dir", default="data/outputs", help="Output directory")
 @click.option("--device", default="auto", help="Compute device: auto|mps|cpu")
-@click.option("--sample-rate", default=3, help="Process every Nth frame")
+@click.option("--sample-rate", default=6, help="Process every Nth frame (6=fast, 3=detailed)")
 @click.option("--no-clips", is_flag=True, help="Skip clip generation")
 @click.option("--no-agent", is_flag=True, help="Skip AI coaching report")
 @click.option("--model", default="yolov8n.pt", help="YOLO model weights path")
@@ -29,12 +34,16 @@ def cli(ctx):
 @click.option(
     "--llm-backend",
     default="template",
-    type=click.Choice(["gemini", "template"]),
+    type=click.Choice(["gemini", "grok", "template"]),
     help="LLM backend for coaching report",
 )
 @click.option("--roster", default=None, type=click.Path(exists=True), help="Path to roster JSON file")
 @click.option("--quarter-duration", default=600, help="Quarter duration in seconds (600=FIBA U16, 720=NBA)")
-def analyse(video_path, output_dir, device, sample_rate, no_clips, no_agent, model, class_map, llm_backend, roster, quarter_duration):
+@click.option("--game-start", default=None, help="Game start as wall-clock time (HH:MM:SS) from scoreboard, or seconds offset")
+@click.option("--vlm-backend", default="gemini", type=click.Choice(["anthropic", "gemini", "grok"]), help="VLM backend for jersey number recognition (gemini=Gemini 3.1 Pro, anthropic=Claude Sonnet, grok=Grok-2 Vision)")
+@click.option("--profile", default="youth", type=click.Choice(["professional", "youth"]), help="Box score profile (professional=full NBA, youth=coaching-focused)")
+@click.option("--scorekeeper", default=None, type=click.Path(exists=True), help="Path to scorekeeper JSON for manual stats (OREB, DREB, AST, TO, STL, BLK, PF, MIN, +/-)")
+def analyse(video_path, output_dir, device, sample_rate, no_clips, no_agent, model, class_map, llm_backend, roster, quarter_duration, game_start, vlm_backend, profile, scorekeeper):
     """Analyse a basketball game video.
 
     Produces: shot_chart.png, player_stats.json, possessions.json,
@@ -48,6 +57,29 @@ def analyse(video_path, output_dir, device, sample_rate, no_clips, no_agent, mod
     if class_map:
         parsed_class_map = {int(k): v for k, v in json.loads(class_map).items()}
 
+    # Parse game start time
+    game_start_sec = 0.0
+    if game_start:
+        if ":" in game_start:
+            # Wall-clock format HH:MM:SS — compute offset from video start
+            parts = game_start.split(":")
+            start_abs = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            # Try to get video start time from filename (e.g., "2026-03-14 14:07:24.MP4")
+            import re as _re
+            video_name = Path(video_path).stem
+            m = _re.search(r"(\d{2}):(\d{2}):(\d{2})", video_name)
+            if m:
+                video_abs = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+                game_start_sec = start_abs - video_abs
+                print(f"Game start: {game_start} (video starts at "
+                      f"{m.group(0)}, offset={game_start_sec:.0f}s)")
+            else:
+                click.echo(f"Warning: Could not parse video start time from filename. "
+                           f"Using {game_start} as absolute seconds.", err=True)
+                game_start_sec = start_abs
+        else:
+            game_start_sec = float(game_start)
+
     config = PipelineConfig(
         device=device if device != "auto" else detect_device(),
         yolo_model=model,
@@ -59,6 +91,10 @@ def analyse(video_path, output_dir, device, sample_rate, no_clips, no_agent, mod
         class_map=parsed_class_map,
         roster_path=roster,
         quarter_duration_sec=quarter_duration,
+        game_start_sec=game_start_sec,
+        vlm_backend=vlm_backend,
+        box_score_profile=profile,
+        scorekeeper_path=scorekeeper,
     )
 
     print("Basketball AI Analysis")

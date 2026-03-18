@@ -1,0 +1,244 @@
+# HOOPS-VISION-2026: v3.1.0 — Full Scorekeeper
+# Purpose: Manual stat entry for stats not available from kamper.basket.no API
+# Parent: v3.0.0-statistical-film-report.yaml
+# Date: 2026-03-16
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "3.1.0"
+  status: "IMPLEMENTED"
+  standard: "Full Scorekeeper"
+
+# ═══════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═══════════════════════════════════════════════════════════════════
+overview:
+  description: |
+    kamper.basket.no records only FGM, 3PM, FTM, and FTA per player.
+    The Game Report (v3.0.0) needs nine additional counting stats for
+    accurate Game Score, Per-36, USG%, and complete box score display:
+    OREB, DREB, AST, TO, STL, BLK, PF, MIN, +/-.
+
+    The scorekeeper system solves this with three components:
+    1. A JSON input format for manual per-player stat entry
+    2. A merge function that enriches pipeline box scores with manual data
+    3. CLI integration via --scorekeeper flag
+
+    The primary interface is agentic: the user describes stats
+    conversationally, HAL generates the JSON, the pipeline merges it.
+
+  problem: |
+    The pipeline detects OREB, DREB, AST, STL, TO, +/-, and MIN
+    heuristically from video. These are included in Game Score and
+    advanced metrics but are estimates, not ground truth. Two stats
+    have no pipeline detector at all:
+    - BLK: Game Score omits the +0.7×BLK term
+    - PF: Game Score omits the −0.4×PF term
+    The scorekeeper provides ground-truth values for ALL counting stats,
+    upgrading heuristic estimates and filling the BLK/PF gap.
+
+  solution: |
+    A scorekeeper JSON file provides ground-truth manual data that merges
+    into the pipeline's detected box score. Manual values override only
+    UNAVAILABLE or HEURISTIC pipeline stats — never DETECTED ones. This
+    preserves the pipeline's high-confidence detections while filling gaps.
+
+# ═══════════════════════════════════════════════════════════════════
+# JSON SCHEMA
+# ═══════════════════════════════════════════════════════════════════
+json_schema:
+  description: |
+    Per-player stat entry keyed by team and jersey number. All fields
+    are optional — the scorekeeper may record only what they observed.
+
+  example: |
+    {
+      "home": {
+        "team_name": "Notodden Thunders (D)",
+        "players": [
+          {
+            "jersey": 4,
+            "min": 32.5,
+            "oreb": 3,
+            "dreb": 7,
+            "ast": 2,
+            "to": 4,
+            "stl": 1,
+            "blk": 0,
+            "pf": 2,
+            "plus_minus": 8
+          },
+          {
+            "jersey": 1,
+            "min": 28.0,
+            "oreb": 1,
+            "dreb": 3,
+            "ast": 0,
+            "to": 2,
+            "stl": 0,
+            "blk": 0,
+            "pf": 3,
+            "plus_minus": -5
+          }
+        ]
+      },
+      "away": {
+        "team_name": "EB-85",
+        "players": [
+          {
+            "jersey": 6,
+            "min": 34.0,
+            "oreb": 0,
+            "dreb": 4,
+            "ast": 5,
+            "to": 1,
+            "stl": 2,
+            "blk": 0,
+            "pf": 1,
+            "plus_minus": 12
+          }
+        ]
+      }
+    }
+
+  fields:
+    jersey: { type: "int", required: true, description: "Jersey number — must match roster" }
+    min: { type: "float", required: false, description: "Minutes played (decimal)" }
+    oreb: { type: "int", required: false, description: "Offensive rebounds" }
+    dreb: { type: "int", required: false, description: "Defensive rebounds" }
+    ast: { type: "int", required: false, description: "Assists" }
+    to: { type: "int", required: false, description: "Turnovers" }
+    stl: { type: "int", required: false, description: "Steals" }
+    blk: { type: "int", required: false, description: "Blocks" }
+    pf: { type: "int", required: false, description: "Personal fouls" }
+    plus_minus: { type: "int", required: false, description: "Point differential while on court" }
+    # Scoring stats (optional — normally from API, but scorekeeper can override)
+    fg: { type: "int", required: false, description: "Field goals made (override)" }
+    fga: { type: "int", required: false, description: "Field goals attempted (override)" }
+    three_p: { type: "int", required: false, description: "Three-pointers made (override)" }
+    three_pa: { type: "int", required: false, description: "Three-pointers attempted (override)" }
+    ft: { type: "int", required: false, description: "Free throws made (override)" }
+    fta: { type: "int", required: false, description: "Free throws attempted (override)" }
+
+# ═══════════════════════════════════════════════════════════════════
+# MERGE RULES
+# ═══════════════════════════════════════════════════════════════════
+merge_rules:
+  description: |
+    The merge function walks each player in the scorekeeper JSON, finds
+    the matching PlayerBoxScore in the GameBoxScore by (team, jersey_number),
+    and conditionally overwrites stats.
+
+  precedence:
+    - "DETECTED stats are NEVER overwritten by manual data"
+    - "HEURISTIC stats ARE overwritten by manual data (manual is more reliable)"
+    - "UNAVAILABLE stats ARE overwritten by manual data (filling the gap)"
+    - "COMPUTED stats are recalculated after merge (pts, fg_pct, etc.)"
+    - "Scoring stats (fg, fga, 3p, 3pa, ft, fta) can override HEURISTIC but not DETECTED"
+
+  stat_source_after_merge: "StatSource.MANUAL for every field written from scorekeeper"
+
+  unmatched_players: |
+    If a scorekeeper player has no matching jersey in the GameBoxScore,
+    create a new PlayerBoxScore with the manual stats. This handles players
+    who were on court but never detected by the pipeline (e.g. bench players
+    who only played defence).
+
+  validation:
+    - "jersey must be > 0"
+    - "min must be >= 0 and <= 60 (FIBA game length)"
+    - "counting stats must be >= 0"
+    - "plus_minus can be negative"
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION
+# ═══════════════════════════════════════════════════════════════════
+implementation:
+  files_new:
+    - path: "app/scoring/__init__.py"
+      purpose: "Package marker"
+    - path: "app/scoring/scorekeeper.py"
+      purpose: "ScorekeeperData dataclass, load_scorekeeper(), merge_scorekeeper()"
+    - path: "tests/unit/test_scorekeeper.py"
+      purpose: "Unit tests for load, merge, precedence, edge cases"
+
+  files_modified:
+    - path: "app/pipeline/pipeline_config.py"
+      change: "Add scorekeeper_path: str | None = None"
+    - path: "main.py"
+      change: "Add --scorekeeper CLI option, pass to PipelineConfig"
+
+  classes:
+    ScorekeeperPlayerStats:
+      description: "Per-player manual stats (all optional except jersey)"
+      fields: "jersey, min, oreb, dreb, ast, to, stl, blk, pf, plus_minus, fg, fga, three_p, three_pa, ft, fta"
+
+    ScorekeeperData:
+      description: "Full scorekeeper input for both teams"
+      fields: "home_team_name, away_team_name, home_players, away_players"
+      methods:
+        - "from_json(path) → ScorekeeperData"
+        - "to_json(path) → None"
+
+  functions:
+    merge_scorekeeper:
+      signature: "merge_scorekeeper(game: GameBoxScore, scorekeeper: ScorekeeperData) → GameBoxScore"
+      description: "Enriches GameBoxScore with manual stats per merge rules"
+      returns: "Modified GameBoxScore (mutated in place and returned)"
+
+# ═══════════════════════════════════════════════════════════════════
+# PIPELINE INTEGRATION
+# ═══════════════════════════════════════════════════════════════════
+pipeline_integration:
+  trigger: |
+    When --scorekeeper path is provided on CLI, load the JSON after
+    box score compilation (Stage 4b) and before advanced stats (Stage 4c).
+    This ensures advanced metrics use the enriched box score.
+
+  stage_order:
+    - "4b: BoxScoreCompiler produces GameBoxScore from detections"
+    - "4b.5: merge_scorekeeper(game_box, scorekeeper_data)  ← NEW"
+    - "4c: Advanced stats computed from enriched GameBoxScore"
+
+# ═══════════════════════════════════════════════════════════════════
+# AGENTIC INTERFACE
+# ═══════════════════════════════════════════════════════════════════
+agentic_interface:
+  description: |
+    The user provides stats conversationally. HAL generates the
+    scorekeeper JSON from natural language input. Examples:
+
+    User: "Mesfin had 3 offensive boards, 7 defensive, 2 assists, 4 turnovers"
+    HAL: writes scorekeeper.json with jersey 4 (from roster lookup)
+
+    User: "Here are the stats from the game sheet" + screenshot
+    HAL: OCRs the screenshot, extracts per-player stats, writes JSON
+
+    User: "EB-85 #6 Grønneberg: 34 min, 4 dreb, 5 ast, 1 to, 2 stl"
+    HAL: writes away player entry for jersey 6
+
+  workflow:
+    1: "User provides stats (text, screenshot, or structured data)"
+    2: "HAL maps names/numbers to roster jersey numbers"
+    3: "HAL writes scorekeeper.json to output directory"
+    4: "Pipeline re-run with --scorekeeper flag produces enriched report"
+
+# ═══════════════════════════════════════════════════════════════════
+# VERIFICATION
+# ═══════════════════════════════════════════════════════════════════
+verification:
+  tests:
+    - "test_load_scorekeeper: loads valid JSON, returns ScorekeeperData"
+    - "test_merge_fills_unavailable: UNAVAILABLE stats get manual values"
+    - "test_merge_preserves_detected: DETECTED stats not overwritten"
+    - "test_merge_overwrites_heuristic: HEURISTIC stats overwritten by manual"
+    - "test_merge_unmatched_player: new PlayerBoxScore created for unknown jersey"
+    - "test_merge_stat_sources: all merged fields have StatSource.MANUAL"
+    - "test_partial_data: scorekeeper with only some stats merges correctly"
+    - "test_validation: invalid jersey (0) or negative min raises ValueError"
+
+  integration:
+    - "python main.py analyse video.mp4 --scorekeeper scorekeeper.json"
+    - "advanced_stats.json shows non-zero OREB, DREB, AST, TO, STL, BLK, PF, MIN"
+    - "Game Score uses full Hollinger formula with all terms"
+    - "Box score in Game Report shows all columns"

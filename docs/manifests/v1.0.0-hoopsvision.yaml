@@ -1,0 +1,72 @@
+# HOOPS-VISION-2026: PROJECT INTELLIGENCE MANIFEST
+# Purpose: Definitive blueprint for AI-driven Basketball Video Analysis System
+# Authoritative Style: Pyramid Principle, Active Voice, UK English
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "1.0.0"
+  standard: "Elite Professional Basketball Analytics"
+  language_preference: "UK English"
+  writing_philosophy: "Pyramid Principle (Insight first, data second)"
+phase_1_architect:
+  interface:
+    type: "CLI"
+    framework: "Typer (Python)"
+    commands:
+      - "ingest: Process raw video files or RTSP streams"
+      - "analyse: Run computer vision and statistical engines"
+      - "report: Generate PDF/JSON scouting reports"
+      - "scout: Compare players or coaches side-by-side"
+
+  system_topology:
+    input: "FFmpeg-accelerated video decoding"
+    vision_core: "Asynchronous Pipeline (Detection -> Tracking -> Homography)"
+    database: "PostgreSQL (Relational Stats) + Redis (Real-time tracking state)"
+    acceleration: "NVIDIA TensorRT + CUDA 12.8+"
+phase_2_build:
+  vision_engine:
+    detection: "YOLOv10 (Real-time player/ball/referee identification)"
+    tracking: "SAM2 (Segment Anything Model 2) for zero-shot player Re-ID"
+    spatial_mapping: "Auto-keypoint detection for 3D Court Homography"
+    pose: "ST-GCN (Spatial-Temporal Graph Convolutional Networks) for biomechanics"
+
+  analytics_engine:
+    player_metrics:
+      - "Shot Load: Physical intensity preceding shot attempts"
+      - "Defensive Gravity: Off-ball defender displacement tracking"
+      - "PPP: Points Per Possession by play-type (e.g. Spain P&R, Isolation)"
+    coach_metrics:
+      - "ATO Efficiency: Success rate of plays following timeouts"
+      - "Rotation Optimisation: Adjusted Plus/Minus for five-man units"
+      - "Tactical Audit: Machine-learning identification of offensive/defensive sets"
+phase_3_test:
+  quality_gates:
+    vision_accuracy:
+      mAP: "> 0.94 at 1080p"
+      id_switches: "< 1.0% in high-traffic paint scenarios"
+    performance:
+      processing_speed: "Minimum 1.5x real-time (60fps source)"
+      latency: "< 100ms for live-stream inference"
+  testing_suites:
+    unit: "Pytest for CLI logic and coordinate math"
+    integration: "End-to-end pipeline run on 10s 'Reference Fast-break' clip"
+    validation: "DeepEVAL for LLM-generated coaching insights"
+phase_4_deploy:
+  containerisation:
+    engine: "Docker"
+    base_image: "nvidia/cuda:12.8-base-ubuntu24.04"
+    features: ["GPU Passthrough", "TensorRT Optimisation"]
+  ci_cd:
+    platform: "GitHub Actions"
+    automation:
+      - "Automated linting (Ruff/Mypy)"
+      - "Model weight verification"
+      - "Multi-platform container builds"
+  monitoring:
+    tools: ["Prometheus", "Grafana"]
+    metrics: ["Inference Latency", "GPU Memory Saturation", "Frame Drop Rate"]
+execution_instruction_for_ai:
+  - "Read: Use this manifest as the 'Source of Truth' for all architectural decisions."
+  - "Architect: Prioritise modularity; ensure the Vision Engine is decoupled from the Analytics Engine."
+  - "Build: Implement the CLI first to define the user interaction surface."
+  - "Test: Do not proceed to 'Deploy' until 'Quality Gates' are met in simulation."
+  - "Deploy: Ensure the Dockerfile is multi-stage to minimise edge-device footprint."

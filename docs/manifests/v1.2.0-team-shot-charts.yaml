@@ -1,0 +1,166 @@
+# HOOPS-VISION-2026: v1.2.0 — Team Shot Charts & Quarter Breakdown
+# Purpose: Add team-separated, quarter-segmented shot charts with jersey color classification
+# Parent: v1.1.0-current-state.yaml
+# Date: 2026-03-15
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "1.2.0"
+  status: "PLANNED"
+  standard: "Team-Aware Shot Chart Analytics"
+
+# ═══════════════════════════════════════════════════════════════════
+# FEATURE: Team Classification via Jersey Color Clustering
+# ═══════════════════════════════════════════════════════════════════
+feature_team_classification:
+  description: "Assign players to home/away teams using jersey color analysis"
+  module: "app/tracking/team_classifier.py"
+  method: "K-Means (k=2) on Lab color features from torso crops"
+  details:
+    - "Extract torso region (20-50% height, 20-80% width) from player bounding box"
+    - "Convert to CIE Lab colour space (perceptually uniform, better clustering than RGB/HSV)"
+    - "Sample every 5th detection per track (efficient, ~20% compute overhead)"
+    - "K-Means clustering into 2 groups → home vs away"
+    - "Fallback to parity heuristic if insufficient colour data"
+  dependencies:
+    - "scikit-learn KMeans (already in requirements.txt)"
+    - "OpenCV colour space conversion (already available)"
+  data_flow:
+    - "TrackedPlayer gains team: str | None = None"
+    - "ShotEvent gains team: str | None = None"
+    - "PossessionEvent.team updated post-hoc from classifier"
+    - "shots_dataframe() gains 'team' column"
+
+# ═══════════════════════════════════════════════════════════════════
+# FEATURE: Team-Separated Shot Charts
+# ═══════════════════════════════════════════════════════════════════
+feature_team_shot_charts:
+  description: "Generate separate shot charts for home and away teams"
+  outputs:
+    - "shot_chart.png — All shots (both teams)"
+    - "shot_chart_home.png — Home team only"
+    - "shot_chart_away.png — Away team only"
+  markers:
+    made: "Green ✕ (shots made)"
+    attempted: "Red ✕ (shots attempted/missed)"
+  module: "app/analytics/shot_chart.py"
+  changes:
+    - "Add optional title parameter to generate()"
+    - "Green markers for made shots, red markers for attempted/missed"
+    - "Pipeline generates 3 charts per run"
+
+# ═══════════════════════════════════════════════════════════════════
+# FEATURE: Shot Outcome Classification (Made vs Missed)
+# ═══════════════════════════════════════════════════════════════════
+feature_shot_outcome:
+  description: "Determine if a shot was made or missed using referee signals and scoreboard detection"
+  current_problem: "All 478 shots classified as 'attempted' — the ball trajectory heuristic cannot confirm makes"
+  approach:
+    primary: "Referee signal detection"
+    details:
+      - "Detect referee raising arm(s) after shot — signals a made basket"
+      - "Referee blowing whistle + pointing = foul, not necessarily a make"
+      - "Temporal correlation: referee signal within 2-3 seconds of shot event"
+      - "Use existing YOLO model — referees are detected as 'person' class"
+      - "Classify referee vs player by: position (referees near sideline/baseline), clothing (black/grey uniform vs team colours)"
+    secondary: "Scoreboard OCR"
+    secondary_details:
+      - "Detect scoreboard region in frame (typically top of broadcast feed)"
+      - "OCR the score before and after shot event"
+      - "Score increase of 2 or 3 points = made basket"
+      - "Requires consistent scoreboard visibility (broadcast footage only)"
+      - "Use pytesseract or EasyOCR for text extraction"
+    fallback: "Ball-through-hoop detection"
+    fallback_details:
+      - "Track ball position relative to detected 'basket' class"
+      - "Ball passing through/near hoop bounding box from above = made shot"
+      - "Already partially implemented in shot_detector.py trajectory tracking"
+  priority_order:
+    1: "Scoreboard OCR (most reliable for broadcast footage)"
+    2: "Ball-through-hoop spatial analysis (works for any footage)"
+    3: "Referee signal detection (supplementary confirmation)"
+  module_new: "app/events/outcome_classifier.py"
+  dependencies:
+    - "pytesseract or easyocr for scoreboard OCR"
+    - "Existing 'basket' class detection from fine-tuned model"
+
+# ═══════════════════════════════════════════════════════════════════
+# FEATURE: Quarter-Segmented Shot Charts
+# ═══════════════════════════════════════════════════════════════════
+feature_quarter_shot_charts:
+  description: "Generate shot charts per team per quarter (Q1-Q4 + OT)"
+  outputs:
+    - "shot_chart_home_q1.png through shot_chart_home_q4.png"
+    - "shot_chart_away_q1.png through shot_chart_away_q4.png"
+    - "shot_chart_home_ot.png / shot_chart_away_ot.png (if overtime detected)"
+  quarter_detection:
+    method: "Time-based segmentation from video duration"
+    details:
+      - "U16 FIBA: 4 x 10min quarters (primary use case)"
+      - "Also supports NBA (4 x 12min) via config"
+      - "Quarter boundaries configurable via CLI or pipeline config"
+      - "Overtime periods detected as time beyond regulation"
+      - "Shots assigned to quarter based on timestamp_sec"
+  module: "app/analytics/shot_chart.py"
+  config:
+    quarter_duration_sec: 600  # 10 min default (FIBA U16)
+    quarter_count: 4
+  game_format: "FIBA U16 — 4 x 10 minute quarters"
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION PLAN
+# ═══════════════════════════════════════════════════════════════════
+implementation:
+  files_new:
+    - path: "app/tracking/team_classifier.py"
+      purpose: "TeamClassifier — jersey colour K-Means clustering"
+    - path: "tests/unit/test_team_classifier.py"
+      purpose: "Unit tests for team classification"
+
+  files_modified:
+    - path: "app/tracking/tracker.py"
+      change: "Add team field to TrackedPlayer dataclass"
+    - path: "app/events/event_types.py"
+      change: "Add team field to ShotEvent dataclass"
+    - path: "app/analytics/metrics.py"
+      change: "Add team column to shots_dataframe(), add quarter assignment"
+    - path: "app/analytics/shot_chart.py"
+      change: "Add title param, update markers (green=made, red=attempted)"
+    - path: "app/pipeline/run_analysis.py"
+      change: "Integrate TeamClassifier, generate team+quarter charts"
+    - path: "app/pipeline/pipeline_config.py"
+      change: "Add quarter_duration_sec, enable_team_classification flags"
+
+  pipeline_stages:
+    stage_2: "Initialise TeamClassifier"
+    stage_3: "Collect jersey colour samples during frame processing"
+    stage_3_5: "Classify teams via K-Means, label shots + possessions"
+    stage_5: "Generate all/home/away charts + per-quarter charts"
+
+  total_charts_per_run:
+    - "1 all-shots chart"
+    - "2 team charts (home + away)"
+    - "8 quarter-team charts (2 teams × 4 quarters)"
+    - "Optional overtime charts"
+    - "Total: 11+ PNG files"
+
+# ═══════════════════════════════════════════════════════════════════
+# VERIFICATION
+# ═══════════════════════════════════════════════════════════════════
+verification:
+  tests:
+    - "All 42 existing tests pass (backward-compatible field defaults)"
+    - "5+ new tests for TeamClassifier"
+    - "Updated shot chart tests for title param and marker colours"
+  integration:
+    - "Run full game analysis → verify 11+ shot chart PNGs in output"
+    - "Visually inspect home vs away chart separation"
+    - "Verify quarter boundaries produce reasonable shot distributions"
+
+# ═══════════════════════════════════════════════════════════════════
+# GAP FROM v1.0.0 TARGET CLOSED BY THIS VERSION
+# ═══════════════════════════════════════════════════════════════════
+gaps_closed:
+  - "Team-aware analytics (home vs away distinction)"
+  - "Per-quarter shot analysis"
+  - "Proper shot chart markers (green=made, red=missed)"

@@ -1,0 +1,558 @@
+# HOOPS-VISION-2026: v1.0.0 — Game Report Specification
+# Purpose: Authoritative definition of what a correct Game Report must contain
+# Consolidates: v3.0.0-statistical-film-report.yaml, v3.0.1-report-content-fixes.yaml,
+#               and all conversation requirements from March 15-17, 2026
+# Date: 2026-03-17
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "1.0.0"
+  type: "specification"
+  standard: "Game Report Output Specification"
+  parent_manifests:
+    - "v3.0.0-statistical-film-report.yaml — implementation design"
+    - "v3.0.1-report-content-fixes.yaml — content quality patches"
+
+# =================================================================
+# NAMING AND IDENTITY
+# =================================================================
+naming:
+  title: "Game Report"
+  anti_patterns:
+    - "NOT 'Championship-Level Statistical Film Report'"
+    - "NOT 'Statistical Film Report'"
+    - "NOT 'Film Report' (internal filename is acceptable, user-facing title is 'Game Report')"
+
+# =================================================================
+# WRITING STANDARD (applies to ALL narrative text)
+# =================================================================
+writing_standard:
+  language: "UK English throughout (analyse, defence, colour, metres)"
+  style: |
+    Barbara Minto's Pyramid Principle: lead with the conclusion, group
+    supporting points logically, eliminate filler, hedging, and redundancy.
+    Every sentence must earn its place.
+  structure: |
+    Situation - Complication - Resolution at section level.
+    Topic sentence first, evidence second, implication last.
+    Three sentences per paragraph maximum where possible.
+  tone: |
+    Authoritative, analytical, direct. Write as a senior analyst briefing
+    a head coach. No superlatives, no vague qualifiers.
+  anti_patterns:
+    - "No padding: 'It is worth noting that...', 'In terms of...'"
+    - "No passive voice where active is clearer"
+    - "No restating what the table shows - interpret, don't describe"
+    - "No American spellings (defense -> defence, offense -> offence)"
+  llm_directive: |
+    Include in every narrative generation prompt:
+    "Write in UK English. Be concise and direct in the style of Barbara
+    Minto - lead with the answer, group logically, cut every unnecessary word.
+    Use growth-mindset language. NEVER use letter grades (A, B, C, D).
+    Use: Impact Player, Solid Foundation, Developing, Growth Opportunity.
+    Frame criticism as actionable development data points, not failures."
+
+# =================================================================
+# DATA PROVENANCE MODEL
+# =================================================================
+data_provenance:
+  description: |
+    Three-tier data sourcing model. Every data point in the report must
+    be traceable to exactly one tier. The report must NEVER claim data
+    exists when it doesn't.
+
+  tiers:
+    tier_1_api_ground_truth:
+      source: "kamper.basket.no (Norwegian Basketball Federation)"
+      stats: ["FGM", "3PM", "FTM", "FTA"]
+      stat_source_tag: "StatSource.MANUAL on scoring stat keys (fg, three_p, ft, fta)"
+      description: |
+        Scoring (FGM, 3PM, FTM, FTA): Norwegian Basketball Federation API
+        (kamper.basket.no) — ground truth. The API records made shots only;
+        FGA per player is unknown. Where FGA is shown, it equals FGM (the
+        minimum possible) which can produce eFG% above 100% for players with
+        three-pointers — this is mathematically correct but reflects
+        incomplete attempt data, not superhuman efficiency.
+      critical_note: |
+        MANUAL on scoring stats does NOT imply counting stat availability.
+
+    tier_2_pipeline_heuristic:
+      source: "HoopsVision AI pipeline (YOLOv8 fine-tuned + VLM jersey recognition)"
+      stats_available: ["FGA (inflated)", "shot locations"]
+      stats_planned: ["OREB", "DREB", "AST", "STL", "TO", "+/-", "MIN"]
+      stat_source_tag: "StatSource.HEURISTIC or StatSource.DETECTED"
+      description: |
+        FGA and shot locations: HoopsVision AI pipeline (YOLOv8 fine-tuned
+        + VLM jersey recognition). Detection rate is ~3.5× actual FGA due
+        to false positives from rebounds and loose-ball events. Useful for
+        relative quarter-to-quarter comparison, not absolute volume.
+      counting_stats_status: |
+        Counting stats (OREB, DREB, AST, TO, STL, BLK, PF, MIN, +/-):
+        Pipeline detectors exist for OREB, DREB, AST, STL, and TO
+        (ReboundDetector, AssistDetector, StealDetector) and are integrated
+        into BoxScoreCompiler. However, accuracy depends on team
+        classification quality and possession tracking. When no pipeline
+        detections or scorekeeper data are present, the Four Factors
+        analysis is limited to eFG% and FT Rate; TOV% and OREB factors
+        show N/A.
+      notes:
+        - "FGA detection rate is ~3.5× actual FGA (false positives from rebounds and loose-ball events)"
+        - "Useful for relative quarter-to-quarter comparison, not absolute volume"
+        - "ReboundDetector outputs ReboundEvent with OFFENSIVE/DEFENSIVE type"
+        - "StealDetector outputs StealEvent; each steal implies a turnover for the victim"
+        - "AssistDetector outputs AssistEvent from pass→score sequences"
+
+    tier_3_manual_scorekeeper:
+      source: "Human scorekeeper data entry"
+      stats: ["all stats including BLK, PF"]
+      stat_source_tag: "StatSource.MANUAL on counting stat keys"
+      notes:
+        - "Overrides heuristic estimates when present"
+        - "Only source for BLK and PF — no pipeline detector exists"
+      description: |
+        Blocks and personal fouls: No pipeline detector exists for BLK or
+        PF. These require manual scorekeeper entry. Without them, the Game
+        Score formula omits the +0.7×BLK and −0.4×PF terms.
+
+  counting_stat_keys: ["ast", "orb", "drb", "stl", "to", "blk", "pf", "min_played"]
+  scoring_stat_keys: ["fg", "three_p", "ft", "fta"]
+  no_detector_stats: ["blk", "pf"]
+
+  disambiguation_rule: |
+    _scan_stat_sources() must return 3-tuple:
+    (has_manual_counting, has_heuristic_counting, has_manual_scoring).
+    The report generator uses has_manual_counting to decide whether
+    counting stats are available - NOT has_manual_scoring.
+
+# =================================================================
+# GROWTH-MINDSET GRADING SYSTEM
+# =================================================================
+grading_system:
+  philosophy: |
+    All grades use growth-mindset labels that frame performance as a
+    development journey, not a fixed judgement. This is youth basketball —
+    every data point is an opportunity for improvement, not a verdict.
+  player_grades:
+    - label: "Impact Player"
+      criteria: "Game Score > 15 AND TS% > 55%"
+    - label: "Rising Performer"
+      criteria: "Game Score > 12, or Game Score > 8 AND TS% > 60%"
+    - label: "Solid Foundation"
+      criteria: "Game Score > 8"
+    - label: "Developing"
+      criteria: "Game Score > 4"
+    - label: "Foundation Phase"
+      criteria: "Game Score > 0"
+    - label: "Growth Opportunity"
+      criteria: "Game Score <= 0"
+  four_factors_grades:
+    labels: ["Impact Player", "Solid Foundation", "Developing", "Growth Opportunity"]
+    note: "Four Factors use 4-tier scale; player grades use 6-tier scale"
+  anti_patterns:
+    - "No letter grades (A, B, C, D)"
+    - "No negative labels (poor, bad, worst, below-average)"
+    - "No LVP award — never single out weakest player"
+  writing_tone: |
+    Frame criticism as actionable data points for improvement.
+    Use 'yet' language: 'hasn't mastered X yet' not 'can't do X'.
+    Focus on process, effort, and strategy rather than innate talent.
+
+# =================================================================
+# N/A GRADING RULES
+# =================================================================
+na_grading:
+  principle: |
+    When a stat is zero because data doesn't exist (not because the team
+    performed at zero level), the grade MUST be "N/A", not a growth-mindset
+    label. Missing data is not performance.
+
+  rules:
+    tov_grade_na: |
+      When total_to == 0 for BOTH teams AND no TO stat sources exist
+      (no DETECTED/HEURISTIC/MANUAL on "to" key), tov_grade = "N/A".
+    oreb_grade_na: |
+      When total_orb == 0 for BOTH teams AND no ORB stat sources exist
+      (no DETECTED/HEURISTIC/MANUAL on "orb" key), oreb_grade = "N/A".
+
+  efg_above_100:
+    description: |
+      When FGA equals FGM (API provides makes only) and the player has
+      three-pointers, eFG% exceeds 100%. This MUST be explained in the
+      data sources note.
+    explanation_template: |
+      "FGA equals FGM (the minimum possible) which can produce eFG%
+      above 100% for players with three-pointers - this is mathematically
+      correct but reflects incomplete attempt data, not superhuman efficiency."
+
+# =================================================================
+# SECTION 1: GAME SUMMARY
+# =================================================================
+section_1_game_summary:
+  title: "Game Summary"
+  purpose: |
+    Executive summary that introduces the reader to ALL content in the report.
+    The reader should understand the full picture from this section alone.
+  requirements:
+    paragraph_count:
+      minimum: 3
+      maximum: 5
+      ideal: 4
+    paragraph_structure:
+      p1_result_and_flow: |
+        Lead with the conclusion: final score, win/loss context (blowout at >= 15),
+        quarter flow identifying the decisive quarter. Pyramid Principle — answer first.
+      p2_efficiency_and_four_factors: |
+        Four Factors verdict: which factors decided the game, eFG% gap, FT rate,
+        turnover and rebounding context (or note data absence).
+      p3_individual_standouts: |
+        Top performers by name with scoring lines and efficiency verdicts.
+        Preview what the scouting reports will detail.
+      p4_coaching_and_verdict: |
+        Coaching assessment summary, awards (MVP), losing factor, and the
+        single adjustment that could flip the result. Tie the narrative together.
+    content_coverage:
+      - "Final score with win/loss context (blowout detection at margin >= 15)"
+      - "Quarter flow — identify the decisive quarter"
+      - "Four Factors verdict — which factors decided the outcome"
+      - "Top 2-3 scorers by name, points, and efficiency verdict"
+      - "Coaching assessment summary"
+      - "MVP award and losing factor"
+    anti_requirements:
+      - "NOT a single paragraph"
+      - "NOT just the score"
+      - "NOT a description of what tables show — interpret and conclude"
+      - "Must filter out pseudo-players (jersey_number == 0, 'unattributed')"
+      - "No raw ISO timestamps in prose — use human-readable dates"
+  template_mode: "3-4 paragraph template when no LLM available"
+  llm_mode: "4-5 paragraph executive summary covering entire report"
+
+# =================================================================
+# SECTION 2: SCORE BY QUARTER
+# =================================================================
+section_2_score_by_quarter:
+  title: "Score by Quarter"
+  requirements:
+    table:
+      rows: "One per quarter (Q1-Q4) + optional overtime + Total row"
+      columns: ["Quarter", "{home_team_name}", "{away_team_name}"]
+      total_row: "Bold, sums must match team totals"
+    optional_enhancements:
+      - "Per-quarter narrative breakdown (3-4 sentences each)"
+      - "Half-by-half split table (1st half vs 2nd half)"
+      - "Shot detection volume table (pipeline FGA per quarter per team)"
+      - "Narrative tying quarters together"
+  implementation_status: "Basic table implemented. Narrative and sub-tables are future LLM work."
+
+# =================================================================
+# SECTION 3: FOUR FACTORS ANALYSIS
+# =================================================================
+section_3_four_factors:
+  title: "Four Factors"
+  requirements:
+    both_teams: "Must show Four Factors for BOTH home and away team"
+    factors:
+      efg_pct:
+        formula: "(FGM + 0.5 * 3PM) / FGA"
+        weight: "40%"
+        benchmarks: { "Impact Player": ">52%", "Solid Foundation": "45-52%", "Developing": "38-45%", "Growth Opportunity": "<38%" }
+      tov_pct:
+        formula: "TO / (FGA + 0.44 * FTA + TO)"
+        weight: "25%"
+        benchmarks: { "Impact Player": "<12%", "Solid Foundation": "12-16%", "Developing": "16-20%", "Growth Opportunity": ">20%" }
+        na_rule: "N/A when no turnover data exists"
+      ft_rate:
+        formula: "FTA / FGA"
+        weight: "15%"
+        benchmarks: { "Impact Player": ">35%", "Solid Foundation": "25-35%", "Developing": "15-25%", "Growth Opportunity": "<15%" }
+      oreb:
+        metric: "Raw offensive rebound count"
+        weight: "20%"
+        benchmarks: { "Impact Player": ">15", "Solid Foundation": "10-15", "Developing": "5-10", "Growth Opportunity": "<5" }
+        na_rule: "N/A when no OREB data exists"
+    offensive_efficiency:
+      est_possessions: "FGA + 0.44 * FTA + TO - OREB"
+      ppp: "PTS / Est_Possessions"
+      offensive_rating: "PPP * 100"
+
+# =================================================================
+# SECTION 3a: KEY STAT DRIVERS
+# =================================================================
+section_3a_key_stat_drivers:
+  title: "Key Stat Drivers"
+  requirements:
+    structure: "One paragraph per Four Factor"
+    per_factor:
+      - "Bold header with factor name, weight, and verdict"
+      - "What DROVE the value (not just the grade)"
+      - "Specific player contributions by name"
+      - "Counterfactual where relevant (e.g., 'Had they shot 65% FT...')"
+    na_handling:
+      tov: "'Data not available' when TOV grade is N/A for both teams"
+      oreb: "'Data not available' when OREB grade is N/A for both teams"
+
+# =================================================================
+# SECTION 3b: DATA SOURCES AND LIMITATIONS
+# =================================================================
+section_3b_data_sources:
+  title: "Data Sources and Limitations"
+  requirements:
+    transparency: "Explicit explanation of where each data point comes from"
+    tier_coverage: "Must address each tier that has (or lacks) data"
+    false_claims_prohibition: |
+      MUST NOT claim counting stats exist when all are zero.
+      When has_manual_counting is False and has_heuristic_counting is False:
+      state 'Not available for this game' explicitly.
+    efg_explanation: "Must explain eFG% > 100% when FGA = FGM with three-pointers"
+    pipeline_fga_caveat: "Must note ~3.5x detection inflation"
+
+# =================================================================
+# SECTION 4: INDIVIDUAL METRICS
+# =================================================================
+section_4_individual_metrics:
+  title: "Individual Metrics"
+  requirements:
+    both_teams: "Separate table per team"
+    columns: ["#", "Player", "PTS", "FG", "TS%", "eFG%", "GmScr", "Grade"]
+    sort_order: "Game Score descending"
+    pseudo_player_exclusion: "jersey_number == 0 or 'unattributed' in name excluded"
+    future_enhancement: "Cross-team ranked table (Section 6 in v3.0.0 vision)"
+
+# =================================================================
+# SECTION 5: PLAYER SCOUTING REPORTS
+# =================================================================
+section_5_scouting_reports:
+  title: "Player Scouting Reports"
+  requirements:
+    player_selection: "All players with meaningful stats (PTS > 0 or FGA > 0)"
+    per_player:
+      sentence_count: "2-4 sentences"
+      content:
+        - "Scoring line with FG breakdown and three-point detail"
+        - "Efficiency verdict (highly efficient/productive/building towards consistency/developing shot selection by TS%)"
+        - "Team context (scoring burden % or counting stats)"
+      format:
+        - "Clauses joined by COMMAS, not periods"
+        - "Example: 'scored 44 points, on 17-17 shooting, including 4-5 from three'"
+        - "NOT: 'scored 44 points. on 17-17 shooting. including 4-5 from three.'"
+    template_mode: "Comma-separated clauses with efficiency verdict"
+    llm_mode: "3-5 sentence LLM-generated analysis per player"
+
+# =================================================================
+# SECTION 6: COACHING ASSESSMENT
+# =================================================================
+section_6_coaching_assessment:
+  title: "Coaching Assessment"
+  requirements:
+    categories:
+      rotation:
+        name: "Rotation Management"
+        always_present: true
+        analysis: "Minutes distribution vs performance matching"
+      offense:
+        name: "Offensive Strategy"
+        always_present: true
+        analysis: "Shot distribution vs efficiency, ball movement"
+      turnovers:
+        name: "Turnover Management"
+        condition: "SKIP when tov_grade == 'N/A' (no TO data)"
+        analysis: "Team TOV%, individual outliers, corrective actions"
+      adjustments:
+        name: "In-Game Adjustments"
+        always_present: true
+        analysis: "Quarter-by-quarter trends, second-half swing analysis"
+    output_format:
+      table_columns: ["Category", "Grade", "Strength", "Area for Growth"]
+      overall_grade: "Weighted average of category grades"
+
+# =================================================================
+# SECTION 7: FINAL VERDICT
+# =================================================================
+section_7_final_verdict:
+  title: "Final Verdict"
+  requirements:
+    awards:
+      stat_mvp:
+        criteria: "Highest Game Score"
+        format: "#{jersey} {name} | {stat_line} | {reason}"
+      efficiency_mvp:
+        criteria: "Best TS% with meaningful volume (FGA >= 5)"
+        format: "#{jersey} {name} | {stat_line} | {reason}"
+    losing_factor: "Single most impactful statistical factor in the outcome"
+    winning_adjustment: "One strategic change that would most likely flip the result"
+    pseudo_player_exclusion: "Never award MVP to pseudo-players"
+    lvp_removed: |
+      Stat LVP deliberately omitted — singling out the weakest player is
+      inappropriate in youth basketball development context. Growth mindset
+      frames performance gaps as development opportunities, not failures.
+
+# =================================================================
+# SECTION 8: SCORE FLOW CHART
+# =================================================================
+section_8_score_flow:
+  title: "Score Flow"
+  module: "app/analytics/score_flow.py"
+  requirements:
+    chart_type: "Cumulative score line chart — one line per team"
+    x_axis: "Game time (minutes or quarter labels)"
+    y_axis: "Cumulative points"
+    lines:
+      home: "Solid line, team primary colour or default blue"
+      away: "Solid line, team secondary colour or default red"
+    quarter_markers: "Vertical dashed lines at Q1/Q2/Q3/Q4 boundaries"
+    legend: "Team names in legend"
+    title: "Score Flow — {home_name} vs {away_name}"
+    output: "score_flow.png"
+  data_source: |
+    Per-quarter scores from roster JSON ("scores" field) or from
+    kamper.basket.no API quarter breakdown. Falls back to pipeline-detected
+    made shots by timestamp when no official scores exist.
+  anti_requirements:
+    - "Do NOT generate if no quarter score data exists"
+    - "Do NOT extrapolate between quarters — plot step function at quarter boundaries"
+
+# =================================================================
+# SECTION 9: SHOT CHARTS
+# =================================================================
+section_9_shot_charts:
+  title: "Shot Charts"
+  module: "app/analytics/shot_chart.py"
+  requirements:
+    court: "NBA half-court diagram (paint, three-point arc, restricted area, basket)"
+    markers:
+      made: "Green ✕ (marker='x', c='green'), annotated with shooter's jersey number"
+      missed: "Red ✕ (marker='x', c='red'), no jersey annotation"
+    jersey_annotation:
+      position: "Offset 6pt up-right from marker"
+      font: "8pt bold, dark green (#006400)"
+      condition: "Only when jersey_number is known (not None)"
+
+    chart_variants:
+      combined:
+        file: "shot_chart.png"
+        title: "Shot Chart — All Shots"
+        description: "All shots from both teams on one court"
+      per_team:
+        files:
+          - "shot_chart_home.png"
+          - "shot_chart_away.png"
+        title: "Shot Chart — {team_name}"
+        description: "All shots for one team across all quarters"
+      per_team_per_quarter:
+        files:
+          - "shot_chart_home_q1.png"
+          - "shot_chart_home_q2.png"
+          - "shot_chart_home_q3.png"
+          - "shot_chart_home_q4.png"
+          - "shot_chart_away_q1.png"
+          - "shot_chart_away_q2.png"
+          - "shot_chart_away_q3.png"
+          - "shot_chart_away_q4.png"
+        title: "Shot Chart — {team_name} Q{n}"
+        description: "Shots for one team in one quarter"
+        overtime: "Generate shot_chart_{team}_ot{n}.png if shots exist beyond Q4"
+        quarter_assignment: "int(timestamp_sec / quarter_duration_sec) + 1"
+
+    generation_rules:
+      - "Always generate combined chart"
+      - "Generate per-team charts when team classification is available"
+      - "Generate per-quarter charts when quarter_duration_sec is configured"
+      - "Skip empty charts (no shots in that team/quarter combination)"
+      - "Title must identify team name and quarter"
+
+  dependencies:
+    - "TeamClassifier must assign team labels to shots"
+    - "quarter_duration_sec from PipelineConfig (default 600s = 10 min FIBA U16)"
+    - "ShotEvent must carry jersey_number for annotations"
+
+# =================================================================
+# APPENDIX: METHODOLOGY
+# =================================================================
+appendix_methodology:
+  title: "Methodology"
+  requirements:
+    data_sources_summary: "Which tiers contributed data for this game"
+    formula_accuracy:
+      when_counting_stats_present: |
+        "Game Score uses full Hollinger formula:
+         PTS + 0.4*FGM - 0.7*FGA - 0.4*(FTA-FTM) + 0.7*OREB + 0.3*DREB
+         + STL + 0.7*AST + 0.7*BLK - 0.4*PF - TO"
+      when_counting_stats_absent: |
+        "Game Score uses scoring terms only:
+         PTS + 0.4*FGM - 0.7*FGA - 0.4*(FTA-FTM)"
+        MUST NOT say "full Hollinger" when counting stats are zero.
+    efg_ts_explanation: |
+      "eFG% and TS% can exceed 100% when FGA equals FGM
+       (API records makes only) and the player has three-pointers"
+
+# =================================================================
+# REPORT FILE OUTPUTS
+# =================================================================
+outputs:
+  filename_convention: |
+    ISO 8601 date + teams + score:
+    "{YYYY-MM-DD HHMM} — {home_name} {home_score} — {away_name} {away_score}.{ext}"
+    Colons stripped for filesystem safety.
+  primary:
+    - path: "{iso_date} — {home} {score} — {away} {score}.json"
+      description: "Full structured report data"
+    - path: "{iso_date} — {home} {score} — {away} {score}.md"
+      description: "Markdown rendering of the report"
+    - path: "{iso_date} — {home} {score} — {away} {score}.docx"
+      description: "Professional Word document (when DOCX rendering enabled)"
+  secondary:
+    - path: "{iso_date} — {home} {score} — {away} {score} — advanced_stats.json"
+      description: "Raw computed advanced metrics"
+  charts:
+    - path: "score_flow.png"
+      description: "Cumulative score flow chart with quarter markers"
+    - path: "shot_chart.png"
+      description: "Combined shot chart — all shots, both teams"
+    - path: "shot_chart_home.png"
+      description: "Home team shot chart — all quarters"
+    - path: "shot_chart_away.png"
+      description: "Away team shot chart — all quarters"
+    - path: "shot_chart_{home|away}_q{1-4}.png"
+      description: "Per-team per-quarter shot charts (up to 8 files)"
+    - path: "shot_chart_{home|away}_ot{n}.png"
+      description: "Overtime shot charts (only if overtime shots exist)"
+  compilation_requirement: |
+    The compile script MUST be run with --match-id to fetch API ground truth
+    from kamper.basket.no. Without it, the report uses pipeline-detected data
+    only (inflated FGA, no FT data, wrong scores). The --match-id is the
+    kamper.basket.no match identifier (e.g., 8254973).
+
+# =================================================================
+# VERIFICATION (pytest content tests)
+# =================================================================
+verification:
+  test_file: "tests/unit/test_report_content.py"
+  test_scenarios:
+    api_only_game:
+      description: |
+        Game with API scoring data only (tier 1). No counting stats.
+        All counting-stat sources are UNAVAILABLE. This is the most
+        common scenario for kamper.basket.no games.
+      assertions:
+        - "game_summary has >= 3 sentences"
+        - "tov_grade is 'N/A' for both teams"
+        - "oreb_grade is 'N/A' for both teams"
+        - "data_sources_note does NOT contain 'scorekeeper' or 'manual counting'"
+        - "data_sources_note contains 'Not available'"
+        - "methodology_notes mention 'scoring terms only'"
+        - "methodology_notes do NOT claim 'full Hollinger'"
+        - "scouting reports use commas between clauses (not '. on ')"
+        - "key_stat_drivers contains 'Data not available' for TOV%"
+        - "key_stat_drivers contains 'Data not available' for OREB"
+        - "coaching assessment skips turnovers category"
+        - "data_sources_note explains eFG% > 100%"
+
+    full_scorekeeper_game:
+      description: |
+        Game with full scorekeeper data (tier 3). All counting stats
+        present with StatSource.MANUAL.
+      assertions:
+        - "tov_grade is a growth-mindset label (Impact Player/Solid Foundation/Developing/Growth Opportunity), not 'N/A'"
+        - "oreb_grade is a growth-mindset label (Impact Player/Solid Foundation/Developing/Growth Opportunity), not 'N/A'"
+        - "data_sources_note mentions 'manual scorekeeper'"
+        - "methodology_notes mention full Hollinger formula"
+        - "coaching assessment includes turnovers category"

@@ -1,0 +1,1043 @@
+# HOOPS-VISION-2026: v3.0.0 — Game Report
+# Purpose: Advanced analytics, scouting reports, coaching assessment from video
+# Parent: v2.0.0-box-score-statistics.yaml
+# Reference: EB85_vs_Boler_Statistical_Report.docx (target output example)
+# Date: 2026-03-16
+# Updated: 2026-03-17 (v1.7.0 manifesto: FGA dedup, MIN tracking, AST possession rework planned)
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "3.0.0"
+  status: "IMPLEMENTED"
+  standard: "Game Report"
+  reference_doc: "EB85_vs_Boler_Statistical_Report.docx"
+
+# ═══════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═══════════════════════════════════════════════════════════════════
+overview:
+  description: |
+    Produces a full championship-level statistical film report from a single
+    game video. Combines Phase 1+2 box score data with advanced analytics
+    (Four Factors, Game Score, Per-36, TS%, eFG%, USG%), individual player
+    scouting profiles, coaching assessments, and narrative game summaries.
+
+    The output is a complete document (DOCX + Markdown) that matches the
+    quality of professional statistical film reports used in competitive
+    basketball programs.
+
+  report_sections:
+    - "1. Game Summary (executive summary covering all sections)"
+    - "2. Score by Quarter (table + per-quarter coaching narratives + score flow chart)"
+    - "   2a. Quarter scores table (home/away per quarter + total)"
+    - "   2b. Per-quarter coaching narrative (3-5 sentences each: tactical dynamics, momentum, causal stat analysis)"
+    - "   2c. Score Flow chart (cumulative score per team, Q1-Q4 vertical lines)"
+    - "3. Team Box Score Totals (both teams, with footnotes on data sources)"
+    - "4. Four Factors Analysis (Dean Oliver, both teams, Home/Away headers)"
+    - "   4a. Offensive Efficiency table (Est. Poss, PPP, ORtg per team)"
+    - "5. Individual Box Score (both teams, sorted by PTS%)"
+    - "6. Advanced Individual Metrics (cross-team ranked by Game Score)"
+    - "7. Player Scouting Reports (The Book — key players from both teams)"
+    - "8. Coaching Assessment (per-team grades with table)"
+    - "9. Q4 Film Analysis (Gemini video analysis of decisive quarter)"
+    - "10. Final Verdict (awards table + key takeaway narrative)"
+    - "11. Shot Charts (embedded images in DOCX; green X = made w/ jersey #, red X = missed)"
+    - "    11a. Full-game shot chart per team (80% page width)"
+    - "    11b. Per-quarter shot charts (home Q1-Q4, away Q1-Q4, 70% page width)"
+    - "Appendix A: Data Sources and Limitations (moved from body to appendix)"
+    - "Appendix B: Methodology (formulas, limitations, grading)"
+
+  design_principle: |
+    All advanced metrics are computed from the box score data produced by
+    v2.0.0 Phase 1+2. The LLM (Gemini/Claude) generates narrative sections
+    (game summary, scouting reports, coaching assessment) from structured
+    stat data. No new video detection is required — this is a pure
+    analytics + generation layer on top of existing pipeline output.
+
+  naming: |
+    The report is called "Game Report" (not "Championship-Level Statistical
+    Film Report" or "Statistical Film Report"). Keep the title clean and
+    universal.
+
+  writing_standard: |
+    All narrative text — game summaries, scouting reports, coaching
+    assessments, film analysis, verdicts — must follow these rules:
+
+    LANGUAGE: UK English throughout (analyse, defence, colour, metres).
+
+    STYLE: Short, concise, well-written prose in the tradition of Barbara
+    Minto's Pyramid Principle. Lead with the conclusion. Group supporting
+    points logically. Eliminate filler, hedging, and redundancy. Every
+    sentence must earn its place.
+
+    STRUCTURE: Situation → Complication → Resolution at section level.
+    Within paragraphs: topic sentence first, evidence second, implication
+    last. No more than three sentences per paragraph where possible.
+
+    TONE: Authoritative, analytical, direct. Write as a senior analyst
+    briefing a head coach — not as a commentator narrating a broadcast.
+    Avoid superlatives ("incredible", "amazing") and vague qualifiers
+    ("quite good", "fairly effective"). Use precise language backed by
+    numbers.
+
+    ANTI-PATTERNS:
+    - No padding ("It is worth noting that...", "In terms of...")
+    - No passive voice where active is clearer
+    - No restating what the table already shows — interpret, don't describe
+    - No American spellings (defense → defence, offense → offence)
+
+    LLM PROMPT INSTRUCTION: Include this directive in every narrative
+    generation prompt: "Write in UK English. Be concise and direct in the
+    style of Barbara Minto — lead with the answer, group logically, cut
+    every unnecessary word."
+
+  lessons_learned:
+    - id: "LL-01"
+      title: "Game Summary must be an executive summary"
+      description: |
+        The Game Summary (Section 1) should summarize the ENTIRE report in
+        5-7 paragraphs, not just the final score. It should cover: result +
+        offensive structure contrast, star player performance, opponent
+        balance, Four Factors verdict, quarter-by-quarter arc, coaching
+        grades, and the key adjustment. A reader who only reads Section 1
+        should get the full picture.
+
+    - id: "LL-02"
+      title: "Four Factors table must use Home/Away headers"
+      description: |
+        Column headers should say "Home Value" and "Away Value", not team
+        abbreviations (which can truncate or confuse). Team names appear in
+        the Advantage column. This makes the report template-agnostic.
+
+    - id: "LL-03"
+      title: "Offensive Efficiency needs its own table"
+      description: |
+        Est. Possessions, Points Per Possession, and Offensive Rating should
+        be presented in a separate navy-header table under Four Factors —
+        not as pipe-delimited text. Include a narrative paragraph explaining
+        the efficiency gap and what drove it.
+
+    - id: "LL-04"
+      title: "FGA estimation footnote must explain the formula"
+      description: |
+        When kamper.basket.no only provides made shots, the footnote must
+        explain HOW FGA is estimated: "Est. Poss = PTS / 1.8, then FGA =
+        Est. Poss − 0.44 × FTA". Never say "typical U16 pace" without
+        the actual formula.
+
+    - id: "LL-05"
+      title: "Q4 Film Analysis from video via Gemini"
+      description: |
+        When the game has a decisive quarter (10+ point swing), extract that
+        quarter's video segment and send to Gemini 2.5 Pro for tactical
+        analysis. Prompt must request concise analytical narratives (3-5
+        sentences each), NOT play-by-play lists. Cover: defensive adjustments
+        on star, supporting cast involvement, transition defense, body
+        language/fatigue, offensive approach changes, critical turnovers,
+        and the decisive run.
+      implementation: |
+        1. Identify decisive quarter from cumulative scores (largest delta)
+        2. Extract video segment using timestamps from shots.json
+        3. Compress to 720p/1080p, no audio (ffmpeg -crf 28)
+        4. Upload to Gemini File API, wait for ACTIVE state
+        5. Send with structured prompt + game context
+        6. Insert response as new section before Final Verdict
+
+    - id: "LL-06"
+      title: "Pseudo-player exclusion is mandatory"
+      description: |
+        When FGA is estimated and an "Unattributed attempts" pseudo-player
+        (jersey_number=0) holds the missing FGA, that player MUST be excluded
+        from: awards (MVP/LVP), scouting reports, coaching assessment, and
+        advanced metrics display. Check jersey_number == 0 OR "unattributed"
+        in player_name.lower().
+
+    - id: "LL-07"
+      title: "Cross-team advanced metrics table"
+      description: |
+        Section 6 (Advanced Metrics) should rank ALL players from BOTH teams
+        in a single table sorted by Game Score descending. Include a Team
+        column. This immediately shows who dominated the game regardless of
+        which team they were on.
+
+    - id: "LL-08"
+      title: "DOCX formatting standards"
+      description: |
+        - Font: Arial throughout
+        - Section headers: navy (#1B3A5C), 16pt bold
+        - Sub-headers: navy, 12pt bold
+        - Body: 11pt, 120 after spacing
+        - Tables: navy header row with white text, alternating row shading
+        - Grade colors: A=green, B=yellow-green, C=gold, D=orange-red
+        - Page breaks before each major section
+        - US Letter size
+        - Italic grey subtitle for data source notes
+
+    - id: "LL-09"
+      title: "Score by Quarter must include per-quarter analysis"
+      status: "IMPLEMENTED"
+      description: |
+        Section 2 is not just a table — it needs:
+        1. The quarter scores table (home/away per quarter + total row)
+        2. Per-quarter coaching narrative (3-5 sentences each) auto-generated
+           by _generate_quarter_narratives() covering: opening control, Q2
+           response and half-time assessment, Q3 adjustment commentary, Q4
+           close-out/comeback analysis with tactical observations
+        3. Score Flow chart (cumulative score per team, embedded as image)
+        4. Half-by-half split referenced in Q2 narrative (half-time score)
+        Currently implemented: items 1-4 in FilmReport.quarter_narratives
+        and docx_renderer.py. Quarter narratives rendered as bold-labelled
+        paragraphs below the score table in the DOCX.
+        v1.6.3: Narratives now include causal statistical analysis — ranked
+        Four Factors differentials (eFG%, TOV%, OREB, FT rate, AST) explain
+        WHY one team outperformed the other each quarter.
+        NOT YET: Half-by-half split table, shot detection volume table.
+
+    - id: "LL-10"
+      title: "Four Factors needs Key Stat Drivers + Data Sources sections"
+      description: |
+        After the Four Factors table and Offensive Efficiency table, add:
+        1. "Key Stat Drivers" — one paragraph per factor explaining what
+           DROVE the value for each team. Not just the grade, but WHY.
+           Include specific player contributions (e.g., "Grønneberg's 5/5
+           from three inflates eFG%") and counterfactuals (e.g., "Had they
+           shot 65% FT, margin drops from 13 to 7").
+        2. "Data Sources and Limitations" — explicit explanation of where
+           each data point comes from (API vs pipeline vs estimate) and
+           what's missing. Be transparent about estimation methods.
+
+    - id: "LL-11"
+      title: "Advanced Metrics must include metric definitions table"
+      description: |
+        After the cross-team advanced metrics table, include:
+        1. "Metric Definitions" table: Metric | Formula | Interpretation
+           for GmScr, TS%, eFG%, Grade, Verdict
+        2. "Data Sources Note" explaining three-tier provenance:
+           (a) API ground truth: FGM, 3PM, FTM, FTA
+           (b) Pipeline heuristic: OREB, DREB, AST, STL, TO, +/-, MIN
+           (c) Manual scorekeeper: all stats including BLK, PF
+           Note must reflect what IS available, not assume everything
+           is missing. Only BLK and PF lack pipeline detectors.
+        3. Reference the Bøler example as the richer format when full
+           scorekeeper data is available
+
+    - id: "LL-12"
+      title: "Box score columns depend on data availability"
+      description: |
+        The individual box score should include ALL available columns.
+        When kamper.basket.no API is the only source: FGM, FGA*, 3PM,
+        3PA*, FTM, FTA, PTS, PTS%.
+        When full scorekeeper data is available (manual or platform):
+        add MIN, OREB, DREB, AST, TO, STL, BLK, PF, +/-.
+        The report generator should dynamically include columns based on
+        which fields have non-zero data across the roster.
+      implementation: |
+        Check if any player has non-zero values for each optional stat.
+        If sum(stat) > 0 across all players, include the column.
+        If all zeros, omit the column and note in methodology.
+
+    - id: "LL-13"
+      title: "UK English, Minto-style prose throughout"
+      description: |
+        All narrative text must use UK English (analyse, defence, colour)
+        and follow Barbara Minto's Pyramid Principle: lead with the
+        conclusion, group supporting points logically, eliminate filler.
+        Short sentences, active voice, precise language backed by numbers.
+        Every LLM prompt must include the Minto directive. No American
+        spellings, no padding phrases, no vague qualifiers.
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 1: GAME SUMMARY
+# ═══════════════════════════════════════════════════════════════════
+section_game_summary:
+  description: |
+    Executive summary (5-7 paragraphs) that covers the entire report.
+    A reader who only reads this section should understand: the result,
+    offensive structure of both teams, star player performance, Four Factors
+    verdict, quarter-by-quarter arc, coaching assessment, and the key
+    adjustment needed. This is NOT a 3-sentence intro — it is the report
+    in miniature.
+  inputs:
+    - "GameBoxScore (team totals, final score, quarter scores)"
+    - "Four Factors computed values (both teams)"
+    - "Advanced stats (Game Score, TS% for top players)"
+    - "Coaching grades"
+    - "Awards (MVP/LVP)"
+  paragraphs:
+    1: "Result + offensive structure contrast (balanced vs star-dependent)"
+    2: "Star player line + dependency stat (PTS% of team total)"
+    3: "Opponent balance — key scorers and their combined efficiency"
+    4: "Four Factors summary — which factors decided the game"
+    5: "Quarter arc — where the game turned and why"
+    6: "Coaching grades + key adjustment"
+  generator: "LLM (gemini/claude) with full report data as input"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 2: TEAM BOX SCORE TOTALS
+# ═══════════════════════════════════════════════════════════════════
+section_team_totals:
+  description: "Aggregate team statistics with shooting percentages"
+  columns:
+    - "FGM-A (field goals made-attempted)"
+    - "3PM-A (three-pointers made-attempted)"
+    - "FTM-A (free throws made-attempted)"
+    - "OREB (offensive rebounds)"
+    - "DREB (defensive rebounds)"
+    - "STL (steals)"
+    - "TO (turnovers)"
+    - "BLK (blocks)"
+    - "AST (assists)"
+    - "PTS (total points)"
+  derived_row: "Percentages: FG%, 3P%, FT%"
+  source: "TeamBoxScore totals from v2.0.0"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 3: FOUR FACTORS ANALYSIS (Dean Oliver)
+# ═══════════════════════════════════════════════════════════════════
+section_four_factors:
+  module: "app/analytics/advanced_stats.py"
+  description: |
+    The Four Factors framework isolates the four key determinants of winning
+    basketball. Each factor is graded against U16 competition benchmarks.
+    BOTH teams shown side-by-side with Home/Away column headers.
+  table_headers: ["Factor", "Home Value", "Grade", "Away Value", "Grade", "Advantage", "Impact", "Weight"]
+  sub_section_offensive_efficiency:
+    description: |
+      Separate table showing Est. Possessions, PPP, and Offensive Rating
+      per team. Followed by a narrative paragraph explaining the efficiency
+      gap and what drove it (shooting vs pace vs volume).
+    table_headers: ["Team", "Est. Possessions", "Points Per Poss.", "Off. Rating"]
+
+  factors:
+    efg_pct:
+      name: "Effective Field Goal Percentage"
+      abbrev: "eFG%"
+      formula: "(FGM + 0.5 × 3PM) / FGA"
+      interpretation: |
+        Measures shooting efficiency including three-point value bonus.
+        A made three is worth 1.5× a made two in this formula.
+      benchmarks:
+        A: "> 52%"
+        B: "45-52%"
+        C: "38-45%"
+        D: "< 38%"
+
+    tov_pct:
+      name: "Turnover Percentage"
+      abbrev: "TOV%"
+      formula: "TO / (FGA + 0.44 × FTA + TO)"
+      interpretation: |
+        Percentage of possessions ending in turnover. Lower is better.
+      benchmarks:
+        A: "< 12%"
+        B: "12-16%"
+        C: "16-20%"
+        D: "> 20%"
+
+    ft_rate:
+      name: "Free Throw Rate"
+      abbrev: "FTR"
+      formula: "FTA / FGA"
+      interpretation: |
+        Free throw attempts per field goal attempt. Measures ability to
+        get to the line (aggressiveness, drawing contact).
+      benchmarks:
+        A: "> 35%"
+        B: "25-35%"
+        C: "15-25%"
+        D: "< 15%"
+
+    oreb_raw:
+      name: "Offensive Rebounds"
+      abbrev: "OREB"
+      note: "Raw count. ORB% requires opponent DREB data (not always available)."
+      formula_full: "ORB% = OREB / (OREB + Opp_DREB)"
+      benchmarks:
+        A: "> 15"
+        B: "10-15"
+        C: "5-10"
+        D: "< 5"
+
+  possession_metrics:
+    est_possessions:
+      name: "Estimated Possessions"
+      formula: "FGA + 0.44 × FTA + TO − OREB"
+      note: "Standard basketball analytics possession estimation"
+    ppp:
+      name: "Points Per Possession"
+      formula: "PTS / Est_Possessions"
+    offensive_rating:
+      name: "Offensive Rating"
+      formula: "PPP × 100"
+      interpretation: "Points scored per 100 possessions"
+      benchmarks:
+        good: "> 100 (scoring more than 1 point per possession)"
+        average: "90-100"
+        poor: "< 90"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 4: INDIVIDUAL BOX SCORE
+# ═══════════════════════════════════════════════════════════════════
+section_individual_box_score:
+  description: "Full per-player stat line, sorted by minutes played"
+  columns:
+    - { abbrev: "#", field: "jersey_number" }
+    - { abbrev: "Player", field: "player_name" }
+    - { abbrev: "MIN", field: "min_played" }
+    - { abbrev: "FG", field: "fg-fga", format: "M-A" }
+    - { abbrev: "3PT", field: "three_p-three_pa", format: "M-A" }
+    - { abbrev: "FT", field: "ft-fta", format: "M-A" }
+    - { abbrev: "OR", field: "orb" }
+    - { abbrev: "DR", field: "drb" }
+    - { abbrev: "F", field: "pf" }
+    - { abbrev: "ST", field: "stl" }
+    - { abbrev: "TO", field: "to" }
+    - { abbrev: "BK", field: "blk" }
+    - { abbrev: "A", field: "ast" }
+    - { abbrev: "PTS", field: "pts", bold: true }
+  source: "PlayerBoxScore from v2.0.0"
+  sort: "min_played descending"
+  zero_display: "- (dash for zero FG/3PT/FT attempts)"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 5: ADVANCED INDIVIDUAL METRICS
+# ═══════════════════════════════════════════════════════════════════
+section_advanced_metrics:
+  module: "app/analytics/advanced_stats.py"
+
+  section_5a_efficiency:
+    name: "Efficiency & Impact Metrics"
+    columns:
+      - { abbrev: "#", field: "jersey_number" }
+      - { abbrev: "Player", field: "player_name" }
+      - { abbrev: "PTS", field: "pts" }
+      - { abbrev: "FG", computed: true, note: "FGM-FGA when FGA exists, FGM otherwise" }
+      - { abbrev: "AST", field: "ast", note: "shown dynamically when any player has AST > 0" }
+      - { abbrev: "TS%", computed: true }
+      - { abbrev: "eFG%", computed: true }
+      - { abbrev: "GmScr", computed: true, bold: true }
+      - { abbrev: "Grade", computed: true }
+    sort: "game_score descending"
+    note: |
+      v1.6.3: Jersey resolution now runs on ALL shots (made + missed) for FGA.
+      FG/AST columns adapt dynamically to available data. Pipeline resolves
+      jerseys for all shooter track IDs; Sherlock deduction also covers misses.
+      Remaining gap: track fragmentation limits per-player FGA accuracy.
+
+    metrics:
+      ts_pct:
+        name: "True Shooting Percentage"
+        abbrev: "TS%"
+        formula: "PTS / (2 × (FGA + 0.44 × FTA))"
+        interpretation: |
+          Most comprehensive shooting efficiency metric — accounts for 2PT,
+          3PT, and FT in a single number. Weights free throws at 0.44
+          possessions per attempt.
+        when_no_fta: "Simplify to PTS / (2 × FGA)"
+
+      efg_pct:
+        name: "Effective Field Goal Percentage"
+        abbrev: "eFG%"
+        formula: "(FGM + 0.5 × 3PM) / FGA"
+        interpretation: |
+          Adjusts FG% to account for the extra value of three-pointers.
+          A made three is worth 1.5× a made two.
+
+      usg_pct:
+        name: "Usage Rate"
+        abbrev: "USG%"
+        formula: "100 × ((FGA + 0.44×FTA + TO) × (Tm_MIN/5)) / (MIN × Tm_Poss)"
+        interpretation: |
+          Estimates percentage of team possessions a player uses while on floor.
+          High usage + high efficiency = elite.
+          High usage + low efficiency = volume without impact.
+
+      game_score:
+        name: "Game Score (John Hollinger)"
+        abbrev: "GmScr"
+        formula: "PTS + 0.4×FGM − 0.7×FGA − 0.4×(FTA−FTM) + 0.7×OREB + 0.3×DREB + STL + 0.7×AST + 0.7×BLK − 0.4×PF − TO"
+        interpretation: |
+          Single-number summary of a player's total statistical contribution.
+          Average game ~ 10, elite game > 20, poor game < 5.
+        primary_ranking_metric: true
+
+      ast_to_ratio:
+        name: "Assist-to-Turnover Ratio"
+        abbrev: "AST/TO"
+        formula: "AST / TO"
+        interpretation:
+          excellent: "> 2.0"
+          average: "1.0-2.0"
+          poor: "< 1.0"
+        edge_cases:
+          zero_to: "Display 'INF' when TO == 0 and AST > 0"
+          zero_both: "Display '-' when both AST and TO are 0"
+
+      reb_pct:
+        name: "Rebound Rate (simplified)"
+        abbrev: "REB%"
+        formula: "(Player_REB / Team_REB) × 100"
+        note: "Simplified rebound share. True REB% requires opponent data."
+
+    grading:
+      scale: |
+        A (elite), B+ (above average), B (average), C+ (below average),
+        C (poor), D (significantly below standard), F (unacceptable).
+        Benchmarks calibrated to Norwegian U16 competition level.
+      algorithm: |
+        Grade is computed from Game Score as primary metric, adjusted by
+        TS% (efficiency bonus/penalty) and AST/TO (decision-making).
+      thresholds:
+        A: "Game Score > 15 AND TS% > 55%"
+        B_plus: "Game Score > 12 OR (Game Score > 8 AND TS% > 60%)"
+        B: "Game Score > 8"
+        C_plus: "Game Score > 4"
+        C: "Game Score > 0"
+        D: "Game Score <= 0"
+
+  section_5b_per36:
+    name: "Per-36 Minute Projections"
+    description: |
+      Normalizes raw stats to a common 36-minute baseline, allowing
+      comparison between starters and bench players regardless of playing
+      time. Formula: Stat × (36 / MIN).
+    columns:
+      - { abbrev: "#", field: "jersey_number" }
+      - { abbrev: "Player", field: "player_name" }
+      - { abbrev: "MIN", field: "min_played" }
+      - { abbrev: "PTS/36", computed: true, bold: true }
+      - { abbrev: "REB/36", computed: true }
+      - { abbrev: "AST/36", computed: true }
+      - { abbrev: "STL/36", computed: true }
+      - { abbrev: "TO/36", computed: true }
+      - { abbrev: "FGA/36", computed: true }
+    sort: "min_played descending"
+    min_minutes_threshold: 5  # exclude players with < 5 min (projections meaningless)
+    formula: "stat × (36 / min_played)"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 6: PLAYER SCOUTING REPORTS ("THE BOOK")
+# ═══════════════════════════════════════════════════════════════════
+section_scouting_reports:
+  description: |
+    Detailed scouting profiles for key contributors, combining box score
+    data with advanced metrics. Generated by LLM from structured stat data.
+  generator: "LLM (gemini/claude)"
+  player_selection: |
+    Include all players with MIN >= 10. Order by Game Score descending.
+    Players with < 10 minutes get a brief 1-sentence note.
+
+  per_player_template:
+    header: "#{jersey} {full_name}"
+    role_line: "Role: {inferred_role}"  # PG/SG/SF/PF/C based on stats profile
+    body: |
+      LLM-generated 3-5 sentence analysis combining:
+      - Key counting stats (pts, reb, ast, to, stl)
+      - Efficiency context (TS%, eFG%, FG breakdown)
+      - Usage and impact (USG%, Game Score)
+      - Specific observations (e.g., "0-for-8 from three", "11 OREB")
+      - Comparison to team context
+    verdict: "One-line summary assessment"
+    grade: "Letter grade (A through F)"
+
+  role_inference:
+    description: |
+      Infer player role from stat profile when roster doesn't specify positions.
+    heuristics:
+      - "High AST + high TO + low REB → Point Guard"
+      - "High 3PA + moderate REB → Wing/Shooting Guard"
+      - "High OREB + high REB + low 3PA → Center/Interior Force"
+      - "Balanced stats → Guard/Utility or Wing"
+      - "High STL + high AST → Guard"
+      - "FGA == 0 + high TO → Reluctant ball-handler (flag for coaching)"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 7: COACHING ASSESSMENT
+# ═══════════════════════════════════════════════════════════════════
+section_coaching_assessment:
+  description: |
+    LLM-generated analysis of coaching decisions based on statistical evidence.
+    Evaluates rotation management, offensive strategy, turnover management,
+    and in-game adjustments.
+  generator: "LLM (gemini/claude)"
+
+  categories:
+    rotation:
+      name: "Rotation Management"
+      analysis_points:
+        - "Minutes distribution across roster"
+        - "High-efficiency players with low minutes (underutilized)"
+        - "Low-efficiency players with high minutes (overplayed)"
+        - "Lineup decisions in crunch time"
+      grade_criteria: |
+        Did minutes allocation match player performance? Were the best
+        players on the court in critical moments?
+
+    offense:
+      name: "Offensive Strategy"
+      analysis_points:
+        - "Shot distribution vs efficiency (USG% vs TS%)"
+        - "Assisted rate (team AST / team FGM)"
+        - "3PT attempt rate and efficiency"
+        - "Post utilization vs perimeter play"
+        - "Ball movement indicators"
+      grade_criteria: |
+        Was the offensive system generating good shots? Were efficient
+        players getting enough touches?
+
+    turnovers:
+      name: "Turnover Management"
+      analysis_points:
+        - "Team TOV%"
+        - "Individual turnover outliers"
+        - "Evidence of coaching adjustments (substitutions, timeouts)"
+      grade_criteria: |
+        How well were turnovers managed? Were corrective actions taken
+        when turnovers spiked?
+
+    adjustments:
+      name: "In-Game Adjustments"
+      analysis_points:
+        - "Quarter-by-quarter scoring trends"
+        - "Substitution timing relative to runs"
+        - "Strategic shifts (pace, play style)"
+      grade_criteria: |
+        Did the coaching staff adapt to what was working and what wasn't?
+
+  output_format: |
+    Table with columns: Category | Grade | Strength | Area for Growth
+    Overall Coach Grade: weighted average
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 9: Q4 FILM ANALYSIS (Video-based)
+# ═══════════════════════════════════════════════════════════════════
+section_q4_film_analysis:
+  description: |
+    Tactical analysis of the decisive quarter, generated by sending the
+    extracted video segment to Gemini 2.5 Pro. Only included when a quarter
+    has a 10+ point swing between teams.
+  trigger: |
+    abs(home_q_score - away_q_score) >= 10 for any quarter.
+    If multiple quarters qualify, analyze the one with the largest swing.
+    If no quarter qualifies, omit this section entirely.
+  generator: "Gemini 3.1 Pro with video input"
+  model: "gemini-3.1-pro"
+  video_extraction:
+    source: "Full game video (path from CLI or config)"
+    timestamps: "From shots.json — first/last shot in target quarter ± 30s buffer"
+    encoding: "ffmpeg -c:v libx264 -crf 28 -preset fast -vf scale=1280:-2 -an"
+  prompt_structure:
+    context: "Score entering quarter, final score, quarter scores, jersey colors"
+    key_players: "Top scorers from both teams with stats"
+    questions:
+      - "Defensive adjustments on star player (double teams, denials, traps)"
+      - "Supporting cast involvement (open looks missed vs never involved)"
+      - "Transition defense breakdown"
+      - "Body language and fatigue indicators"
+      - "Offensive approach changes (pace, shot selection, clock management)"
+      - "Critical turnovers leading to easy baskets"
+      - "The decisive run — when and how the game broke open"
+    output_format: |
+      Concise analytical narrative per question (3-5 sentences each).
+      NO play-by-play lists. Focus on patterns and trends.
+  sub_headers:
+    - "Defensive Adjustments on [Star Player]"
+    - "[Losing Team]'s Supporting Cast"
+    - "Transition Defense"
+    - "Body Language and Fatigue"
+    - "[Winning Team]'s Offensive Approach"
+    - "Critical Turnovers"
+    - "The Decisive Run"
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 10: FINAL VERDICT
+# ═══════════════════════════════════════════════════════════════════
+section_final_verdict:
+  description: "Awards and summary table"
+  generator: "LLM with structured stat input"
+  awards:
+    stat_mvp:
+      criteria: "Highest Game Score with context"
+      format: "#{jersey} {name} — {key_stats}. {reason}."
+    offensive_mvp:
+      criteria: "Highest PTS with acceptable efficiency"
+      format: "#{jersey} {name} — {pts} pts, Game Score {gs}. {reason}."
+    efficiency_mvp:
+      criteria: "Best TS% with meaningful volume (FGA >= 5)"
+      format: "#{jersey} {name} — {key_stats}. {reason}."
+    stat_lvp:
+      criteria: "Lowest Game Score among rotation players (MIN >= 10)"
+      format: "#{jersey} {name} — {key_stats}. {reason}."
+    coach_grade:
+      criteria: "Overall coaching assessment letter grade"
+    losing_factor:
+      criteria: "Single most impactful statistical factor in the outcome"
+    winning_adjustment:
+      criteria: "The one strategic change that would most likely flip the result"
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: AdvancedPlayerStats
+# ═══════════════════════════════════════════════════════════════════
+data_model_advanced:
+  module: "app/analytics/advanced_stats.py"
+  type: "dataclass"
+  description: "Computed from PlayerBoxScore + team totals"
+
+  fields:
+    # From PlayerBoxScore (inputs)
+    player: "PlayerBoxScore"
+
+    # Computed advanced stats
+    ts_pct: { type: "float", formula: "PTS / (2 × (FGA + 0.44 × FTA))" }
+    efg_pct: { type: "float", formula: "(FGM + 0.5 × 3PM) / FGA" }
+    usg_pct: { type: "float", formula: "100 × ((FGA + 0.44×FTA + TO) × (Tm_MIN/5)) / (MIN × Tm_Poss)" }
+    game_score: { type: "float", formula: "PTS + 0.4×FGM − 0.7×FGA − 0.4×(FTA−FTM) + 0.7×OREB + 0.3×DREB + STL + 0.7×AST + 0.7×BLK − 0.4×PF − TO" }
+    ast_to_ratio: { type: "float | str", formula: "AST / TO (INF when TO=0)" }
+    reb_pct: { type: "float", formula: "(REB / Team_REB) × 100" }
+    grade: { type: "str", formula: "Letter grade from Game Score + efficiency" }
+
+    # Per-36 projections
+    pts_per36: { type: "float", formula: "PTS × (36 / MIN)" }
+    reb_per36: { type: "float", formula: "REB × (36 / MIN)" }
+    ast_per36: { type: "float", formula: "AST × (36 / MIN)" }
+    stl_per36: { type: "float", formula: "STL × (36 / MIN)" }
+    to_per36: { type: "float", formula: "TO × (36 / MIN)" }
+    fga_per36: { type: "float", formula: "FGA × (36 / MIN)" }
+
+  team_level_inputs:
+    team_min: "Sum of all player minutes (for USG% denominator)"
+    team_poss: "Estimated team possessions"
+    team_reb: "Total team rebounds (for REB%)"
+    team_fga: "Total team FGA"
+    team_fta: "Total team FTA"
+    team_to: "Total team turnovers"
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: FourFactors
+# ═══════════════════════════════════════════════════════════════════
+data_model_four_factors:
+  module: "app/analytics/advanced_stats.py"
+  type: "dataclass"
+
+  fields:
+    efg_pct: { type: "float", grade: "str" }
+    tov_pct: { type: "float", grade: "str" }
+    ft_rate: { type: "float", grade: "str" }
+    oreb: { type: "int", grade: "str" }
+    est_possessions: { type: "float" }
+    ppp: { type: "float" }
+    offensive_rating: { type: "float" }
+
+# ═══════════════════════════════════════════════════════════════════
+# REPORT GENERATOR
+# ═══════════════════════════════════════════════════════════════════
+report_generator:
+  module: "app/reporting/film_report.py"
+  description: |
+    Orchestrates the full statistical film report generation.
+    Computes all advanced stats, then passes structured data to
+    the LLM for narrative sections, then assembles final document.
+
+  pipeline:
+    step_1: "Load GameBoxScore from box_score.json"
+    step_2: "Clean box score (remove unidentified players, validate jerseys against roster)"
+    step_3: "Merge API ground truth (kamper.basket.no FGM/FT data)"
+    step_4: "Estimate missing FGA (Est. Poss = PTS / 1.8, FGA = Est. Poss − 0.44 × FTA)"
+    step_5: "Compute FourFactors for BOTH teams"
+    step_6: "Compute AdvancedPlayerStats for each player (both teams)"
+    step_7: "Generate Per-36 projections"
+    step_8: "Assign player grades"
+    step_9: "Determine awards (MVP/LVP) — exclude pseudo-players"
+    step_10: "LLM: Generate executive summary (all report data as input)"
+    step_11: "LLM: Generate scouting reports for key players (both teams)"
+    step_12: "LLM: Generate coaching assessment (per-team grades)"
+    step_13: "Identify decisive quarter (10+ point swing)"
+    step_14: "Extract decisive quarter video (ffmpeg)"
+    step_15: "Gemini 2.5 Pro: Analyze decisive quarter video"
+    step_16: "Assemble all sections into DOCX"
+
+  outputs:
+    - "game_report.docx — Professional DOCX (primary output)"
+    - "film_report.json — Full report data in JSON"
+    - "advanced_stats.json — Raw computed metrics in JSON"
+    - "q4_analysis.md — Gemini video analysis (if decisive quarter exists)"
+
+  llm_config:
+    narrative_backend: "gemini | claude"
+    narrative_model_gemini: "gemini-3-flash"
+    narrative_model_claude: "claude-sonnet-4-20250514"
+    video_backend: "gemini"
+    video_model: "gemini-3.1-pro"
+    video_notes: |
+      Gemini 2.5 Flash hallucinated repetitive play-by-play lists when
+      analyzing video — use Pro tier for video analysis. For text-only
+      narrative generation, Flash is fine. Updated to Gemini 3.x series
+      (March 2026) — 2.5 series is legacy/maintenance only.
+    prompt_strategy: |
+      Pass structured stat tables (not raw JSON) to the LLM with explicit
+      instructions for tone, length, and analytical framework. Include
+      benchmarks and grading criteria in the prompt so the LLM can
+      generate contextually appropriate assessments.
+      For video analysis: constrain to "concise analytical narrative" and
+      explicitly forbid play-by-play lists.
+    temperature: 0.3  # low creativity, high accuracy for stat analysis
+    video_temperature: 0.4
+    video_max_tokens: 8192
+
+# ═══════════════════════════════════════════════════════════════════
+# PIPELINE INTEGRATION
+# ═══════════════════════════════════════════════════════════════════
+pipeline_integration:
+  new_stages:
+    stage_4c:
+      name: "Advanced Statistics"
+      description: "Compute Four Factors, Game Score, TS%, eFG%, USG%, Per-36"
+      after: "Stage 4b (box score compilation)"
+      components:
+        - "FourFactors — team-level Dean Oliver analysis"
+        - "AdvancedPlayerStats — per-player efficiency metrics"
+        - "PlayerGrader — letter grades from Game Score + efficiency"
+    stage_7_enhanced:
+      name: "Game Report"
+      description: "Replace basic coaching report with full film report"
+      components:
+        - "FilmReportGenerator — orchestrates all sections"
+        - "LLM narrative generation (game summary, scouting, coaching)"
+        - "DOCX rendering (optional)"
+
+  cli_changes:
+    new_options:
+      - "--report-level basic|film — basic = current coach report, film = full statistical report"
+      - "--docx — output DOCX in addition to markdown"
+    default_report_level: "film"
+
+  config_changes:
+    pipeline_config:
+      - { field: "report_level", type: "str", default: "film", values: ["basic", "film"] }
+      - { field: "enable_docx", type: "bool", default: false }
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION PLAN
+# ═══════════════════════════════════════════════════════════════════
+implementation:
+  phase_1_advanced_stats:
+    duration: "1 day"
+    description: "Pure computation — no LLM, no new detection"
+    files_new:
+      - path: "app/analytics/advanced_stats.py"
+        purpose: "FourFactors, AdvancedPlayerStats, PlayerGrader, Per36"
+      - path: "tests/unit/test_advanced_stats.py"
+        purpose: "Formula verification for all metrics"
+    files_modified:
+      - path: "app/analytics/box_score.py"
+        change: "Add helper methods for team totals needed by advanced stats"
+    stats_delivered:
+      - "TS% (True Shooting)"
+      - "eFG% (Effective FG)"
+      - "USG% (Usage Rate)"
+      - "Game Score (Hollinger)"
+      - "TOV% (Turnover Percentage)"
+      - "FT Rate"
+      - "ORB raw count"
+      - "Est. Possessions, PPP, Offensive Rating"
+      - "Per-36 projections (PTS, REB, AST, STL, TO, FGA)"
+      - "REB% (simplified rebound share)"
+      - "Player grades (A through F)"
+
+  phase_2_film_report:
+    duration: "1-2 days"
+    description: "LLM-powered narrative generation + report assembly"
+    files_new:
+      - path: "app/reporting/film_report.py"
+        purpose: "FilmReportGenerator — orchestrates full report"
+      - path: "app/reporting/film_report_prompts.py"
+        purpose: "LLM prompt templates for each narrative section"
+      - path: "tests/unit/test_film_report.py"
+    files_modified:
+      - path: "app/pipeline/run_analysis.py"
+        change: "Wire Stage 4c + film report generation"
+      - path: "app/pipeline/pipeline_config.py"
+        change: "Add report_level, enable_docx fields"
+      - path: "main.py"
+        change: "Add --report-level and --docx CLI options"
+    outputs_delivered:
+      - "statistical_report.md"
+      - "advanced_stats.json"
+
+  phase_3_docx:
+    duration: "1 day"
+    description: "DOCX output with professional formatting and embedded charts"
+    status: "IMPLEMENTED"
+    files_new:
+      - path: "app/reporting/docx_renderer.py"
+        purpose: |
+          Convert FilmReport to CreateDocx.ts-compatible JSON and invoke
+          rendering. Handles: section ordering, image embedding (score flow
+          chart, shot charts per team per quarter), quarter narratives,
+          grade colours, table formatting.
+    dependencies:
+      - "CreateDocx.ts (Bun-based DOCX generator with ImageRun support)"
+    outputs_delivered:
+      - "statistical_report.docx (with 12 embedded chart images)"
+    image_embedding:
+      score_flow: "95% page width, centred, italic caption"
+      shot_chart_full: "80% page width per team"
+      shot_chart_quarter: "70% page width, Q1-Q4 per team (8 charts)"
+      format: "PNG with aspect ratio preserved from file header"
+
+  phase_4_video_analysis:
+    duration: "0.5 day"
+    description: "Gemini video analysis for decisive quarter"
+    files_new:
+      - path: "app/reporting/video_analysis.py"
+        purpose: |
+          Extract decisive quarter video, upload to Gemini File API,
+          get tactical analysis. Includes: quarter detection (largest swing),
+          ffmpeg extraction, Gemini upload + polling, prompt construction,
+          response parsing.
+      - path: "scripts/gemini_video_analysis.ts"
+        purpose: "Standalone Bun script for ad-hoc video analysis (reference impl)"
+    dependencies:
+      - "GOOGLE_API_KEY env var"
+      - "ffmpeg installed"
+      - "Gemini File API (generativelanguage.googleapis.com)"
+    implementation_notes:
+      - "Gemini 2.5 Flash hallucinates play-by-play — use 2.5 Pro"
+      - "Must constrain prompt: 'concise analytical narrative, NOT play-by-play lists'"
+      - "maxOutputTokens: 8192 is sufficient; higher causes repetition loops"
+      - "Video must be re-encoded (source can be 32GB+), target ~140MB for 28min"
+      - "File API upload is resumable; poll for ACTIVE state before generateContent"
+
+# ═══════════════════════════════════════════════════════════════════
+# DETECTION DEPENDENCY MATRIX
+# ═══════════════════════════════════════════════════════════════════
+detection_dependencies:
+  description: |
+    Maps each report section to the detection sources it requires.
+    All advanced stats are COMPUTED from v2.0.0 box score data.
+    No new video detection infrastructure needed.
+
+  matrix:
+    # Section → what it needs → where it comes from
+    Team_Totals:
+      needs: "FG, FGA, 3P, 3PA, FT, FTA, OREB, DREB, STL, TO, BLK, AST, PTS"
+      source: "v2.0.0 Phase 1+2 (mostly available, FT/BLK/PF manual)"
+    Four_Factors:
+      needs: "FGA, FGM, 3PM, FTA, TO, OREB"
+      source: "COMPUTED from team totals"
+      gap: "FTA requires manual entry or scoreboard OCR"
+    Individual_Box:
+      needs: "Full PlayerBoxScore"
+      source: "v2.0.0 Phase 1+2"
+    TS_PCT:
+      needs: "PTS, FGA, FTA"
+      source: "COMPUTED (degrades without FTA — simplified to PTS/(2×FGA))"
+    EFG_PCT:
+      needs: "FGM, 3PM, FGA"
+      source: "COMPUTED (fully available from Phase 1)"
+    USG_PCT:
+      needs: "FGA, FTA, TO, MIN, Team totals"
+      source: "COMPUTED (degrades without FTA)"
+    Game_Score:
+      needs: "PTS, FGM, FGA, FTA, FTM, OREB, DREB, STL, AST, BLK, PF, TO"
+      source: "COMPUTED (PF/BLK/FT terms zero without manual data)"
+    Per36:
+      needs: "Any counting stat + MIN"
+      source: "COMPUTED (MIN from v2.0.0 Phase 1 track presence)"
+
+  pipeline_heuristic_detections:
+    description: |
+      The pipeline detects these stats heuristically from video. They are
+      included in Game Score and advanced metrics with HEURISTIC provenance.
+      Manual scorekeeper data (v3.1.0) overrides these with ground truth.
+    stats:
+      - stat: "OREB/DREB"
+        detector: "rebound_detector"
+        method: "Ball trajectory after missed shot + nearest player attribution"
+      - stat: "AST"
+        detector: "assist_detector"
+        method: "Pass-to-score linkage within possession window"
+      - stat: "STL"
+        detector: "steal_detector"
+        method: "Possession change after defensive player action"
+      - stat: "TO"
+        detector: "possession_tracker"
+        method: "Possession loss without shot attempt"
+      - stat: "+/-"
+        method: "On-court presence during scoring events"
+      - stat: "MIN"
+        method: "Track duration from first to last detection per player"
+
+  current_gaps:
+    - stat: "BLK"
+      impact: "Game Score missing +0.7×BLK term"
+      workaround: "Manual scorekeeper entry (v3.1.0)"
+    - stat: "PF"
+      impact: "Game Score missing -0.4×PF term"
+      workaround: "Manual scorekeeper entry (v3.1.0)"
+    - stat: "Opponent stats"
+      impact: "No Defensive Rating, no true ORB%, no opponent Four Factors"
+      workaround: "Analyse opponent video separately, or manual entry"
+
+# ═══════════════════════════════════════════════════════════════════
+# MANUAL STAT MERGE
+# ═══════════════════════════════════════════════════════════════════
+manual_stat_merge:
+  description: |
+    Allow merging manual scorekeeper stats (FT, BLK, PF, DEFL) into
+    the pipeline-detected box score before computing advanced metrics.
+    This is critical for accurate Game Score and TS% computation.
+
+  merge_sources:
+    - "roster.json — manual_stats field per player"
+    - "CLI: --manual-stats path/to/manual.json"
+    - "API: kamper.basket.no FT data (available for some games)"
+
+  merge_rules:
+    - "Manual stats override UNAVAILABLE pipeline stats"
+    - "Manual stats do NOT override DETECTED pipeline stats"
+    - "stat_sources updated to MANUAL for merged fields"
+    - "Merged fields flagged in report appendix"
+
+  manual_json_format:
+    example: |
+      {
+        "players": [
+          { "jersey": 1, "team": "home", "ft": 3, "fta": 4, "pf": 2, "blk": 0 },
+          { "jersey": 10, "team": "home", "ft": 2, "fta": 2, "pf": 1, "blk": 0 }
+        ]
+      }
+
+# ═══════════════════════════════════════════════════════════════════
+# VERIFICATION
+# ═══════════════════════════════════════════════════════════════════
+verification:
+  formula_tests:
+    - "eFG% = (24 + 0.5×6) / 69 = 39.1% (matches reference doc)"
+    - "TOV% = 19 / (69 + 0.44×22 + 19) = 19.5% (matches reference doc)"
+    - "FT Rate = 22 / 69 = 31.9% (matches reference doc)"
+    - "Est. Possessions = 69 + 0.44×22 + 19 − 24 = 73.68 (matches reference doc)"
+    - "PPP = 67 / 73.68 = 0.909 (matches reference doc)"
+    - "Offensive Rating = 90.9 (matches reference doc)"
+    - "Game Score Keric: 10 + 0.4×4 − 0.7×6 − 0.4×0 + 0.7×11 + 0.3×4 + 0 + 0.7×1 + 0 − 0.4×1 − 2 = 14.6"
+    - "TS% Keric: 10 / (2 × (6 + 0.44×2)) = 72.7% (matches reference doc)"
+  integration_tests:
+    - "Full report generates all 11 sections (including Q4 analysis when applicable)"
+    - "All 226 tests pass (160 original + 66 advanced stats)"
+    - "DOCX output opens correctly in Word/Google Docs"
+    - "Advanced stats JSON round-trips correctly"
+    - "Pseudo-players excluded from awards, scouting, coaching sections"
+    - "Four Factors table uses Home/Away headers"
+    - "Game Summary is 5-7 paragraphs covering full report"
+    - "Offensive Efficiency is a table, not pipe-delimited text"
+  reference_validation:
+    - "Compare computed stats against EB85_vs_Boler_Statistical_Report.docx"
+    - "Every metric in the reference doc must match within rounding tolerance"
+  notodden_validation:
+    description: "Verified against Notodden vs EB-85 (March 14, 2026)"
+    checks:
+      - "Team totals match API: Notodden 69 (27 FGM, 4 3PM, 11 FT), EB-85 82 (32 FGM, 7 3PM, 11 FT)"
+      - "Mesfin 44pts (17-17 FG, 4 3PM, 6-14 FT) = 63.8% of team"
+      - "eFG% Home 41.4% vs Away 54.6%"
+      - "ORtg Home 78.1 vs Away 102.8"
+      - "Q4 film analysis identifies: denial/trapping on Mesfin, 14-2 run, transition breakdown"

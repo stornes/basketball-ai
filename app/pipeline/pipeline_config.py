@@ -23,15 +23,20 @@ class PipelineConfig:
     yolo_model: str = "yolov8n.pt"
     confidence_threshold: float = 0.35
     iou_threshold: float = 0.5
-    frame_sample_rate: int = 3
+    frame_sample_rate: int = 6
     batch_size: int = 8
+    decode_width: int = 1920  # Decode at half-4K; 0 = native resolution
     court_confidence_threshold: float = 0.6
     output_dir: str = "data/outputs"
     enable_clips: bool = True
     enable_coaching_agent: bool = True
     llm_backend: str = "gemini"  # "gemini" | "template"
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3-flash"
     class_map: dict | None = None  # {model_class_id: "person"|"ball"} for fine-tuned models
     enable_team_classification: bool = True
     quarter_duration_sec: int = 600  # 10 min FIBA U16 default (NBA: 720)
     roster_path: str | None = None  # path to roster.json
+    game_start_sec: float = 0.0  # video timestamp when game starts (tip-off)
+    vlm_backend: str = "gemini"  # "gemini", "anthropic", "grok", or "openai" for jersey number VLM
+    box_score_profile: str = "youth"  # "professional" or "youth"
+    scorekeeper_path: str | None = None  # path to scorekeeper.json for manual stats

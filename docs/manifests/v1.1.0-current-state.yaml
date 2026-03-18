@@ -1,0 +1,229 @@
+# HOOPS-VISION-2026: PROJECT INTELLIGENCE MANIFEST — CURRENT STATE
+# Purpose: Documents what has been built vs. v1.0.0 target architecture
+# This version reflects the MVP implementation as of March 2026
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "1.1.0"
+  status: "MVP Complete"
+  standard: "Basketball Analytics MVP — Local Processing"
+  language_preference: "UK English"
+  writing_philosophy: "Pyramid Principle (Insight first, data second)"
+
+# ═══════════════════════════════════════════════════════════════════
+# PHASE 1: ARCHITECT — Implementation Status
+# ═══════════════════════════════════════════════════════════════════
+phase_1_architect:
+  interface:
+    type: "CLI"
+    framework: "Click (Python)"  # v1.0.0 target: Typer
+    status: "IMPLEMENTED"
+    commands_implemented:
+      - "analyse: Full pipeline — ingest + analyse + report in one run"
+      - "download: Download basketball dataset from Roboflow"
+      - "train: Fine-tune YOLOv8 on downloaded dataset"
+    commands_planned:
+      - "scout: Player/coach comparison (not yet built)"
+    gap: "CLI uses Click, not Typer. Scout command not yet built."
+
+  system_topology:
+    input:
+      target: "FFmpeg-accelerated video decoding"
+      current: "OpenCV VideoCapture with grab/retrieve optimisation"
+      status: "PARTIAL"
+      notes: "FFmpeg used for clip extraction (via ffmpeg-python). Video decoding uses OpenCV with grab/retrieve to skip non-sampled frames."
+    vision_core:
+      target: "Asynchronous Pipeline (Detection -> Tracking -> Homography)"
+      current: "Synchronous batch pipeline (Detection -> Tracking -> Court Mapping)"
+      status: "PARTIAL"
+      notes: "Pipeline is sequential with batch processing (8 frames). Threaded frame loading provides partial async."
+    database:
+      target: "PostgreSQL (Relational Stats) + Redis (Real-time tracking state)"
+      current: "JSON file output (player_stats.json, possessions.json, shots.json, player_tracks.json)"
+      status: "NOT IMPLEMENTED"
+      gap: "No database. All output is JSON files to data/outputs/."
+    acceleration:
+      target: "NVIDIA TensorRT + CUDA 12.8+"
+      current: "Apple MPS (Metal Performance Shaders) on M1 Max"
+      status: "ADAPTED"
+      notes: "Development hardware is MacBook Pro M1 Max. MPS used instead of CUDA. Auto-detection: mps > cuda > cpu."
+
+# ═══════════════════════════════════════════════════════════════════
+# PHASE 2: BUILD — Implementation Status
+# ═══════════════════════════════════════════════════════════════════
+phase_2_build:
+  vision_engine:
+    detection:
+      target: "YOLOv10 (Real-time player/ball/referee identification)"
+      current: "YOLOv8n with fine-tuning pipeline (player + ball + custom classes)"
+      status: "PARTIAL"
+      location: "app/vision/detector.py"
+      fine_tuning: "app/training/train.py — download dataset + fine-tune on MPS/CPU"
+      notes: "YOLOv8n (6MB) with COCO pre-trained weights. Fine-tuning pipeline added: Roboflow dataset download, training script with MPS/CPU support, custom class mapping in detector. Batch inference with frame resizing to 960x540."
+    tracking:
+      target: "SAM2 (Segment Anything Model 2) for zero-shot player Re-ID"
+      current: "IoU-based greedy tracker (pure numpy, no CNN)"
+      status: "ADAPTED"
+      location: "app/tracking/tracker.py"
+      notes: "Originally DeepSORT but MobileNetV2 CPU embeddings caused 27-45 min bottleneck on M1 (no CUDA). Replaced with IoU-only matching — sufficient for fixed-camera basketball."
+    spatial_mapping:
+      target: "Auto-keypoint detection for 3D Court Homography"
+      current: "Canny + HoughLinesP + cv2.getPerspectiveTransform to NBA court dimensions"
+      status: "PARTIAL"
+      location: "app/vision/court_mapper.py"
+      notes: "2D homography only (not 3D). Classical CV pipeline. Graceful None fallback if court lines not detected."
+    pose:
+      target: "ST-GCN (Spatial-Temporal Graph Convolutional Networks) for biomechanics"
+      current: "Not implemented"
+      status: "NOT IMPLEMENTED"
+      gap: "No pose estimation or biomechanics analysis."
+
+  analytics_engine:
+    player_metrics:
+      implemented:
+        - "FG%: Field goal percentage per player"
+        - "Shots attempted / made per player"
+        - "Distance run (pixels, from tracking data)"
+        - "Possession count and duration per player"
+      not_implemented:
+        - "Shot Load: Physical intensity preceding shot attempts"
+        - "Defensive Gravity: Off-ball defender displacement tracking"
+        - "PPP: Points Per Possession by play-type"
+      location: "app/analytics/metrics.py"
+      status: "PARTIAL"
+    coach_metrics:
+      implemented: []
+      not_implemented:
+        - "ATO Efficiency: Success rate of plays following timeouts"
+        - "Rotation Optimisation: Adjusted Plus/Minus for five-man units"
+        - "Tactical Audit: ML identification of offensive/defensive sets"
+      status: "NOT IMPLEMENTED"
+
+  additional_components_built:
+    shot_detection:
+      location: "app/events/shot_detector.py"
+      method: "Ball trajectory arc heuristics (no ML)"
+      status: "IMPLEMENTED"
+    possession_tracking:
+      location: "app/events/possession.py"
+      method: "Nearest-player-to-ball assignment with change detection"
+      status: "IMPLEMENTED"
+    shot_chart:
+      location: "app/analytics/shot_chart.py"
+      method: "Matplotlib NBA court overlay with made/missed markers"
+      status: "IMPLEMENTED"
+    clip_generation:
+      location: "app/reporting/clips.py"
+      method: "ffmpeg-python with ThreadPoolExecutor(max_workers=4)"
+      status: "IMPLEMENTED"
+    coaching_agent:
+      location: "app/reporting/coach_agent.py"
+      method: "LangGraph StateGraph with Google Gemini (gemini-2.0-flash) + template fallback"
+      prompts: "app/prompts/coaching.yaml (externalised)"
+      status: "IMPLEMENTED"
+
+# ═══════════════════════════════════════════════════════════════════
+# PHASE 3: TEST — Implementation Status
+# ═══════════════════════════════════════════════════════════════════
+phase_3_test:
+  quality_gates:
+    vision_accuracy:
+      mAP:
+        target: "> 0.94 at 1080p"
+        current: "Not benchmarked (using pre-trained YOLOv8n COCO weights)"
+        status: "NOT MEASURED"
+      id_switches:
+        target: "< 1.0% in high-traffic paint scenarios"
+        current: "Not benchmarked (IoU tracker, no Re-ID)"
+        status: "NOT MEASURED"
+    performance:
+      processing_speed:
+        target: "Minimum 1.5x real-time (60fps source)"
+        current: "~3-5 min for full game with sample_rate=3 on M1 Max (estimated)"
+        status: "PARTIAL"
+      latency:
+        target: "< 100ms for live-stream inference"
+        current: "No live-stream support"
+        status: "NOT APPLICABLE"
+  testing_suites:
+    unit:
+      target: "Pytest for CLI logic and coordinate math"
+      current: "42 pytest tests covering all modules"
+      status: "IMPLEMENTED"
+      location: "tests/unit/"
+      modules_covered:
+        - "test_video_loader.py (4 tests)"
+        - "test_detector.py (3 tests)"
+        - "test_court_mapper.py (4 tests)"
+        - "test_shot_detector.py (4 tests)"
+        - "test_possession.py (4 tests)"
+        - "test_metrics.py (8 tests)"
+        - "test_shot_chart.py (2 tests)"
+        - "test_coach_agent.py (2 tests)"
+        - "test_training.py (10 tests)"
+    integration:
+      target: "End-to-end pipeline run on 10s 'Reference Fast-break' clip"
+      current: "Synthetic video integration test with mocked YOLO"
+      status: "PARTIAL"
+      location: "tests/integration/test_pipeline.py (1 test)"
+    validation:
+      target: "DeepEVAL for LLM-generated coaching insights"
+      current: "Not implemented"
+      status: "NOT IMPLEMENTED"
+
+# ═══════════════════════════════════════════════════════════════════
+# PHASE 4: DEPLOY — Implementation Status
+# ═══════════════════════════════════════════════════════════════════
+phase_4_deploy:
+  containerisation:
+    status: "NOT IMPLEMENTED"
+    gap: "No Dockerfile. Runs locally via python main.py."
+  ci_cd:
+    status: "NOT IMPLEMENTED"
+    gap: "No GitHub Actions. Manual pytest runs."
+  monitoring:
+    status: "NOT IMPLEMENTED"
+    gap: "No Prometheus/Grafana. Pipeline prints timing to stdout."
+
+# ═══════════════════════════════════════════════════════════════════
+# GAP SUMMARY
+# ═══════════════════════════════════════════════════════════════════
+gap_summary:
+  implemented:
+    - "Video ingestion with grab/retrieve optimisation"
+    - "YOLOv8n batch detection on MPS"
+    - "IoU-based player tracking"
+    - "Court mapping (2D homography)"
+    - "Shot detection (trajectory heuristics)"
+    - "Possession tracking"
+    - "Basic player/game analytics (FG%, distance, possessions)"
+    - "Shot chart visualisation"
+    - "Highlight clip generation (parallel)"
+    - "AI coaching report (Gemini + template fallback)"
+    - "Externalised prompt configuration"
+    - "YOLO fine-tuning pipeline (Roboflow download + train + custom class mapping)"
+    - "CLI with analyse/download/train commands"
+    - "42 passing tests"
+    - "GitHub repo (public)"
+
+  not_implemented:
+    - "Typer CLI with separate commands (ingest/analyse/report/scout)"
+    - "YOLOv10 detection"
+    - "SAM2 tracking with Re-ID"
+    - "3D court homography"
+    - "ST-GCN pose estimation"
+    - "Advanced player metrics (Shot Load, Defensive Gravity, PPP)"
+    - "Coach metrics (ATO, Rotation Optimisation, Tactical Audit)"
+    - "PostgreSQL + Redis"
+    - "NVIDIA TensorRT / CUDA acceleration"
+    - "Docker containerisation"
+    - "GitHub Actions CI/CD"
+    - "Prometheus / Grafana monitoring"
+    - "DeepEVAL validation"
+    - "RTSP live-stream support"
+    - "PDF scouting reports"
+
+  adapted:
+    - "Click instead of Typer (functionally equivalent for current scope)"
+    - "Apple MPS instead of NVIDIA CUDA (development hardware)"
+    - "IoU tracker instead of SAM2 (eliminated 27-45 min bottleneck)"
+    - "JSON output instead of PostgreSQL (sufficient for MVP)"

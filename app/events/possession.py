@@ -8,13 +8,21 @@ from app.vision.detection_types import Detection
 
 
 class PossessionTracker:
-    """Assigns possession to the player closest to the ball."""
+    """Assigns possession to the player closest to the ball.
 
-    POSSESSION_DISTANCE_PX = 80  # max pixels between ball and player for possession
-    MIN_POSSESSION_FRAMES = 5  # minimum frames to register a possession
+    v1.7.0: Accepts team_map for real team assignment (from Stage 3.5
+    jersey colour classification) and frame_width for resolution-scaled
+    proximity threshold.
+    """
 
-    def __init__(self, fps: float):
+    def __init__(self, fps: float, frame_width: int = 1920,
+                 team_map: dict[int, str] | None = None):
         self.fps = fps
+        self.team_map = team_map or {}
+        # Resolution-scaled proximity: 5% of frame width (192px at 4K)
+        self.POSSESSION_DISTANCE_PX = int(frame_width * 0.05)
+        # Reduced minimum: 2 sampled frames ≈ 0.2s at sample_rate=3
+        self.MIN_POSSESSION_FRAMES = 2
         self._current_possessor: int | None = None
         self._possession_start_frame: int = 0
         self._possession_count = 0
@@ -92,8 +100,6 @@ class PossessionTracker:
         self._frames_held = 0
         return None
 
-    @staticmethod
-    def _assign_team(track_id: int) -> str:
-        """Heuristic team assignment based on track ID parity."""
-        # In a real system, this would use jersey color clustering
-        return "team_a" if track_id % 2 == 0 else "team_b"
+    def _assign_team(self, track_id: int) -> str:
+        """Assign team from classification map, fallback to parity heuristic."""
+        return self.team_map.get(track_id, "team_a" if track_id % 2 == 0 else "team_b")

@@ -1,0 +1,809 @@
+# HOOPS-VISION-2026: v2.0.0 — Box Score Statistics System
+# Purpose: Full NBA-standard box score with professional and youth profiles
+# Parent: v1.2.0-team-shot-charts.yaml
+# Date: 2026-03-15
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "2.0.0"
+  status: "PLANNED"
+  standard: "NBA Box Score Statistics with Youth Profile"
+
+# ═══════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═══════════════════════════════════════════════════════════════════
+overview:
+  description: |
+    Complete box score statistics system that tracks standard basketball
+    statistics from video analysis. Supports two profiles: PROFESSIONAL
+    (full NBA stat sheet) and YOUTH (reduced set focused on decision-making,
+    effort, and impact). Each statistic is tagged with its source: detected
+    from video, inferred via heuristic, manually entered, or computed from
+    other stats.
+  profiles:
+    - "PROFESSIONAL: Full NBA box score (20+ per-player stats + advanced metrics)"
+    - "YOUTH: Coaching-focused subset (10-12 stats + KPIs + impact line)"
+  design_principle: |
+    Single data model holds all fields. Profiles are views that filter and
+    format the same underlying data. The BoxScoreProfile enum controls
+    which stats are displayed, which renderers are used, and which KPIs
+    are computed.
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: BoxScoreProfile Enum
+# ═══════════════════════════════════════════════════════════════════
+data_model_profile:
+  location: "app/analytics/box_score.py"
+  definition:
+    name: "BoxScoreProfile"
+    type: "enum"
+    variants:
+      PROFESSIONAL:
+        description: "Full NBA box score with all counting stats, percentages, and advanced metrics"
+        stat_count: "20+ per-player fields"
+        renderer: "NBA-standard table format"
+        advanced_metrics: true
+      YOUTH:
+        description: "Reduced stat set for youth basketball coaching"
+        stat_count: "10-12 per-player fields"
+        renderer: "Impact line format + simplified table"
+        advanced_metrics: false
+        kpis: true
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: StatSource Enum
+# ═══════════════════════════════════════════════════════════════════
+data_model_stat_source:
+  location: "app/analytics/box_score.py"
+  definition:
+    name: "StatSource"
+    type: "enum"
+    variants:
+      DETECTED: "From video detection pipeline (high confidence)"
+      HEURISTIC: "Inferred from video with uncertainty (medium confidence)"
+      MANUAL: "Entered by scorekeeper (ground truth)"
+      COMPUTED: "Derived from other stats (accuracy depends on inputs)"
+      UNAVAILABLE: "Cannot be determined from available data"
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: PlayerBoxScore
+# ═══════════════════════════════════════════════════════════════════
+data_model_player:
+  location: "app/analytics/box_score.py"
+  type: "dataclass"
+  description: "Per-player box score holding all statistics for both profiles"
+
+  identity_fields:
+    player_id:
+      type: "int"
+      description: "Track ID (from video) or jersey number (from roster)"
+    player_name:
+      type: "str | None"
+      description: "From roster lookup"
+    jersey_number:
+      type: "int | None"
+      description: "From roster"
+    team:
+      type: "str | None"
+      description: "home or away"
+    on_court:
+      type: "bool"
+      default: true
+      description: "Whether player is currently on court (for +/- tracking)"
+
+  counting_stats:
+    # ── Minutes ──
+    min_played:
+      abbrev: "MIN"
+      type: "float"
+      default: 0.0
+      unit: "minutes"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "HEURISTIC — frames where track is confirmed / (total frames / fps / 60)"
+
+    # ── Field Goals ──
+    fg:
+      abbrev: "FG"
+      type: "int"
+      default: 0
+      description: "Field goals made"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "DETECTED — from ShotDetector made classification"
+    fga:
+      abbrev: "FGA"
+      type: "int"
+      default: 0
+      description: "Field goals attempted"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "DETECTED — from ShotDetector arc detection"
+
+    # ── Three-Pointers ──
+    three_p:
+      abbrev: "3P"
+      type: "int"
+      default: 0
+      description: "Three-point field goals made"
+      profiles: [PROFESSIONAL]
+      source: "HEURISTIC — shot with court_position beyond 3-point arc"
+    three_pa:
+      abbrev: "3PA"
+      type: "int"
+      default: 0
+      description: "Three-point field goals attempted"
+      profiles: [PROFESSIONAL]
+      source: "HEURISTIC — shot attempt with court_position beyond 3-point arc"
+
+    # ── Free Throws ──
+    ft:
+      abbrev: "FT"
+      type: "int"
+      default: 0
+      description: "Free throws made"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "UNAVAILABLE from video — requires MANUAL entry or scoreboard OCR"
+    fta:
+      abbrev: "FTA"
+      type: "int"
+      default: 0
+      description: "Free throws attempted"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "UNAVAILABLE from video — requires MANUAL entry or scoreboard OCR"
+
+    # ── Rebounds ──
+    orb:
+      abbrev: "ORB"
+      type: "int"
+      default: 0
+      description: "Offensive rebounds"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "HEURISTIC — first player to gain ball proximity after own team's miss"
+    drb:
+      abbrev: "DRB"
+      type: "int"
+      default: 0
+      description: "Defensive rebounds"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "HEURISTIC — first player to gain ball proximity after opponent's miss"
+
+    # ── Playmaking ──
+    ast:
+      abbrev: "AST"
+      type: "int"
+      default: 0
+      description: "Assists"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "HEURISTIC — teammate possession preceding made shot within 4 seconds"
+    to:
+      abbrev: "TO"
+      type: "int"
+      default: 0
+      description: "Turnovers"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "DETECTED — PossessionTracker turnover result"
+
+    # ── Defence ──
+    stl:
+      abbrev: "STL"
+      type: "int"
+      default: 0
+      description: "Steals"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "HEURISTIC — cross-team possession flip without shot event"
+    blk:
+      abbrev: "BLK"
+      type: "int"
+      default: 0
+      description: "Blocks"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "UNAVAILABLE from video — requires MANUAL entry"
+
+    # ── Discipline ──
+    pf:
+      abbrev: "PF"
+      type: "int"
+      default: 0
+      description: "Personal fouls"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "UNAVAILABLE from video — requires MANUAL entry"
+
+    # ── Hustle (Youth-focused, available to both) ──
+    deflections:
+      abbrev: "DEFL"
+      type: "int"
+      default: 0
+      description: "Deflections — tips, taps on the ball that disrupt opponent possession"
+      profiles: [YOUTH]
+      source: "MANUAL only — not detectable from video"
+
+    # ── Points ──
+    pts:
+      abbrev: "PTS"
+      type: "int"
+      default: 0
+      description: "Total points scored"
+      profiles: [PROFESSIONAL, YOUTH]
+      source: "COMPUTED — (fg - three_p) * 2 + three_p * 3 + ft"
+
+    # ── Game Impact ──
+    plus_minus:
+      abbrev: "+/-"
+      type: "int"
+      default: 0
+      description: "Team point differential while player is on court"
+      profiles: [PROFESSIONAL]
+      source: "HEURISTIC — scoring events attributed to on-court players"
+
+  computed_properties:
+    fg_pct:
+      abbrev: "FG%"
+      formula: "fg / fga"
+      profiles: [PROFESSIONAL, YOUTH]
+    three_p_pct:
+      abbrev: "3P%"
+      formula: "three_p / three_pa"
+      profiles: [PROFESSIONAL]
+    ft_pct:
+      abbrev: "FT%"
+      formula: "ft / fta"
+      profiles: [PROFESSIONAL, YOUTH]
+    two_p:
+      abbrev: "2P"
+      formula: "fg - three_p"
+      profiles: [PROFESSIONAL]
+    two_pa:
+      abbrev: "2PA"
+      formula: "fga - three_pa"
+      profiles: [PROFESSIONAL]
+    two_p_pct:
+      abbrev: "2P%"
+      formula: "two_p / two_pa"
+      profiles: [PROFESSIONAL]
+    reb:
+      abbrev: "REB"
+      formula: "orb + drb"
+      profiles: [PROFESSIONAL, YOUTH]
+    is_double_double:
+      formula: "count(stat >= 10 for stat in [pts, reb, ast, stl, blk]) >= 2"
+      profiles: [PROFESSIONAL]
+    is_triple_double:
+      formula: "count(stat >= 10 for stat in [pts, reb, ast, stl, blk]) >= 3"
+      profiles: [PROFESSIONAL]
+
+  metadata_field:
+    stat_sources:
+      type: "dict[str, StatSource]"
+      description: "Per-field provenance tracking, e.g. {fg: DETECTED, ast: MANUAL}"
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: TeamBoxScore
+# ═══════════════════════════════════════════════════════════════════
+data_model_team:
+  location: "app/analytics/box_score.py"
+  type: "dataclass"
+  fields:
+    team_name: "str"
+    team_key: "str — home or away"
+    players: "list[PlayerBoxScore]"
+  aggregated_properties:
+    - "total_pts, total_fg, total_fga, team_fg_pct"
+    - "total_reb, total_ast, total_to, total_stl, total_blk"
+    - "total_pf, total_deflections"
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA MODEL: GameBoxScore
+# ═══════════════════════════════════════════════════════════════════
+data_model_game:
+  location: "app/analytics/box_score.py"
+  type: "dataclass"
+  fields:
+    home: "TeamBoxScore"
+    away: "TeamBoxScore"
+    profile: "BoxScoreProfile"
+    game_date: "str | None"
+    venue: "str | None"
+    quarter_scores: "list[dict] | None — from Roster"
+    video_path: "str | None"
+    detection_summary: "dict — frames processed, court calibrated, track count, etc."
+  methods:
+    to_dict: "JSON-compatible serialisation"
+    from_dict: "Deserialisation from dict"
+
+# ═══════════════════════════════════════════════════════════════════
+# PROFESSIONAL PROFILE: Full Box Score
+# ═══════════════════════════════════════════════════════════════════
+professional_profile:
+  description: "Full NBA-standard box score with all counting stats and advanced metrics"
+
+  stats_displayed:
+    per_player:
+      - "MIN, FG, FGA, FG%, 3P, 3PA, 3P%, FT, FTA, FT%"
+      - "ORB, DRB, REB, AST, TO, STL, BLK, PF, PTS, +/-"
+    team_totals:
+      - "FG, FGA, FG%, 3P, 3PA, 3P%, FT, FTA, FT%"
+      - "ORB, DRB, REB, AST, TO, STL, BLK, PF, PTS"
+
+  renderer_text_format: |
+    NOTODDEN THUNDERS (D) vs EB-85
+    2026-03-14 | Final: 69 - 82
+
+    NOTODDEN THUNDERS (D)
+    Player              MIN  FG    3P    FT    ORB DRB REB AST STL BLK TO  PF  PTS +/-
+    M. Bakke (#27)     24:30  3-8   1-3   2-2    1   3   4   2   1   0  1   2   9  +3
+    J. Ndayisenga (#24)22:15  4-10  0-2   1-2    2   4   6   1   0   1  2   3   9  -5
+    ...
+    TOTALS                   28-65  8-22  5-8    8  20  28  15   5   2  12  18  69
+
+  renderer_json_format:
+    includes:
+      - "game metadata (date, teams, final score, quarter scores)"
+      - "per-player stat objects with all counting + percentage fields"
+      - "team totals"
+      - "stat_sources per player (provenance tracking)"
+      - "detection_metadata (reliability ratings per stat category)"
+
+  advanced_metrics:
+    ts_pct:
+      name: "True Shooting Percentage"
+      abbrev: "TS%"
+      formula: "PTS / (2 * (FGA + 0.44 * FTA))"
+      note: "Simplified to PTS / (2 * FGA) when FTA unavailable"
+    efg_pct:
+      name: "Effective Field Goal Percentage"
+      abbrev: "eFG%"
+      formula: "(FG + 0.5 * 3P) / FGA"
+      note: "Does not require FT data — computable from Phase 1"
+    usg_pct:
+      name: "Usage Rate"
+      abbrev: "USG%"
+      formula: "100 * ((FGA + 0.44 * FTA + TO) * (Tm_MIN / 5)) / (MIN * (Tm_FGA + 0.44 * Tm_FTA + Tm_TO))"
+      note: "Simplified without FTA when unavailable"
+    per:
+      name: "Player Efficiency Rating"
+      abbrev: "PER"
+      formula: "Simplified local PER without league pace adjustment"
+      components: "FG, AST, STL, BLK, ORB, DRB, missed FG, TO, PF weighted per minute"
+      note: "No league-average normalisation for amateur games"
+    bpm:
+      name: "Box Plus/Minus"
+      abbrev: "BPM"
+      formula: "Regression-based estimate from per-minute stats vs team average"
+      note: "Approximation only — NBA BPM model not applicable to amateur data"
+    vorp:
+      name: "Value Over Replacement Player"
+      abbrev: "VORP"
+      formula: "(BPM - (-2.0)) * (MIN / (Team_MIN / 5))"
+      note: "Low utility for single-game analysis"
+
+# ═══════════════════════════════════════════════════════════════════
+# YOUTH PROFILE: Coaching-Focused Box Score
+# ═══════════════════════════════════════════════════════════════════
+youth_profile:
+  description: |
+    Reduced stat set for youth basketball (U12-U18). Focuses on decision-making,
+    effort, and impact rather than statistical noise. Excludes 3-point breakdown,
+    +/-, and advanced metrics. Adds DEFLECTIONS as a hustle metric and computes
+    coaching-relevant KPIs.
+
+  stats_displayed:
+    per_player:
+      - "MIN, FG (FGM/FGA), FT (FTM/FTA), PTS"
+      - "ORB, DRB, REB"
+      - "AST, TO"
+      - "STL, BLK"
+      - "PF, DEFL"
+    team_totals:
+      - "FG, FT, PTS, REB, AST, TO, STL, BLK, PF, DEFL"
+
+  # ── DELIBERATE EXCLUSIONS (by design) ──────────────────────────
+  # These stats are intentionally omitted from the youth profile.
+  # This is a coaching philosophy decision, not a technical limitation.
+  # The system CAN compute all of these; it chooses NOT to show them
+  # in youth mode because they distort development priorities.
+  stats_excluded_from_youth:
+    by_design: true
+    rationale: |
+      Youth coaching prioritises decision-making, effort, and impact over
+      statistical optimisation. Showing advanced metrics to youth players
+      and parents encourages stat-chasing behaviour that undermines
+      development. These exclusions are permanent and intentional.
+    excluded:
+      three_point_splits:
+        stats: "3P, 3PA, 3P%"
+        reason: "Youth players should develop all-round shooting, not optimise for threes"
+      two_point_splits:
+        stats: "2P, 2PA, 2P%"
+        reason: "Derived from 3P splits which are excluded"
+      plus_minus:
+        stats: "+/-"
+        reason: "Too noisy with youth substitution patterns and skill variance"
+      advanced_efficiency:
+        stats: "TS%, eFG%"
+        reason: "Encourages shot-selection gaming rather than skill development"
+      advanced_usage:
+        stats: "USG%"
+        reason: "Rewards ball-dominant play, opposite of youth development goals"
+      advanced_impact:
+        stats: "PER, BPM, VORP"
+        reason: "Single-number ratings are reductive and misleading at youth level"
+
+  impact_line:
+    description: "Single-line summary of player impact for quick coaching reference"
+    format: "PTS / REB / AST / STL / BLK / TO"
+    example: "14 / 7 / 4 / 3 / 1 / 2"
+    usage: |
+      Printed after each player's name in youth reports. Gives coaches an
+      instant snapshot without needing to parse a full stat table. The six
+      values capture scoring, rebounding, playmaking, defence, and discipline
+      in a single scannable line.
+    renderer_location: "app/reporting/box_score_renderer.py"
+
+  youth_kpis:
+    ast_to_ratio:
+      name: "Assist-to-Turnover Ratio"
+      abbrev: "AST/TO"
+      formula: "ast / to (returns float, 0.0 if to == 0)"
+      interpretation:
+        excellent: "> 3.0 — elite decision-maker"
+        good: "2.0 - 3.0 — strong playmaker"
+        average: "1.0 - 2.0 — developing"
+        poor: "< 1.0 — turnover-prone, needs ball-handling work"
+      profiles: [YOUTH]
+      coach_value: "Primary indicator of decision-making quality"
+
+    defensive_activity_index:
+      name: "Defensive Activity Index"
+      abbrev: "DAI"
+      formula: "stl + deflections"
+      interpretation:
+        high_activity: "> 5 — disruptive defender"
+        moderate: "3 - 5 — engaged"
+        low: "< 3 — passive on defence"
+      profiles: [YOUTH]
+      coach_value: "Measures defensive effort and engagement regardless of outcome"
+
+    shot_selection:
+      name: "Shot Selection"
+      abbrev: "FG%"
+      formula: "fg / fga"
+      interpretation:
+        good_selection: "> 0.45 — taking good shots"
+        average: "0.35 - 0.45 — some improvement needed"
+        poor_selection: "< 0.35 — needs shot selection coaching"
+      profiles: [YOUTH]
+      coach_value: "Indicates whether player takes shots within their range and ability"
+
+    effort_plays:
+      name: "Effort Plays"
+      abbrev: "EFF"
+      formula: "orb + stl + deflections + blk"
+      description: |
+        Composite metric capturing hustle actions that require effort and
+        positioning rather than skill or athleticism. Offensive rebounds
+        require boxing out and second-effort. Steals and deflections require
+        active hands. Blocks require help-side awareness. None of these
+        require shooting ability — they reward effort.
+      interpretation:
+        high_effort: "> 6 — exceptional hustle player"
+        solid: "3 - 6 — good effort"
+        low: "< 3 — needs to increase activity"
+      profiles: [YOUTH]
+      coach_value: "Rewards players who do the dirty work that doesn't show in points"
+
+    rebounds_per_minute:
+      name: "Rebounds Per Minute"
+      abbrev: "REB/MIN"
+      formula: "reb / min_played"
+      profiles: [YOUTH]
+      coach_value: "Normalised rebounding rate for players with different minutes"
+
+  youth_renderer_text_format: |
+    NOTODDEN THUNDERS (D) — YOUTH BOX SCORE
+    2026-03-14 | Final: 69 - 82
+
+    Player              MIN  FG    FT    PTS  REB  AST  TO  STL  BLK  PF  DEFL
+    M. Bakke (#27)     24:30  3-8   2-2    9    4    2   1    1    0   2    1
+      Impact: 9 / 4 / 2 / 1 / 0 / 1   AST/TO: 2.0   DAI: 2   EFF: 2
+    J. Ndayisenga (#24)22:15  4-10  1-2    9    6    1   2    0    1   3    0
+      Impact: 9 / 6 / 1 / 0 / 1 / 2   AST/TO: 0.5   DAI: 0   EFF: 1
+    ...
+    TOTALS                   28-65  5-8   69   28   15  12    5    2  18    4
+
+    KEY PERFORMANCE INDICATORS
+    Best AST/TO Ratio:  M. Bakke (2.0)
+    Most Effort Plays:  J. Ndayisenga (1 ORB + 0 STL + 0 DEFL + 1 BLK = 2)
+    Highest DAI:        M. Bakke (1 STL + 1 DEFL = 2)
+
+# ═══════════════════════════════════════════════════════════════════
+# DETECTION FEASIBILITY MATRIX
+# ═══════════════════════════════════════════════════════════════════
+detection_feasibility:
+  description: |
+    Each statistic rated by how it is determined. The stat_sources field
+    on PlayerBoxScore records provenance per player per stat.
+
+  matrix:
+    FGA:
+      source: DETECTED
+      confidence: "High"
+      method: "ShotDetector ball trajectory arc detection"
+    FG:
+      source: DETECTED
+      confidence: "Medium"
+      method: "ShotDetector made/missed classification via basket proximity"
+    FG_PCT:
+      source: COMPUTED
+      confidence: "Medium"
+      method: "FG / FGA"
+    THREE_PA:
+      source: HEURISTIC
+      confidence: "Medium"
+      method: "Shot with court_position beyond 3-point arc (23.75ft from basket)"
+      prerequisite: "Court homography calibration must succeed"
+    THREE_P:
+      source: HEURISTIC
+      confidence: "Medium"
+      method: "Made shot beyond 3-point line"
+    FTA:
+      source: UNAVAILABLE
+      confidence: "N/A"
+      method: "Requires dead-ball detection or scoreboard OCR or manual entry"
+    FT:
+      source: UNAVAILABLE
+      confidence: "N/A"
+      method: "Same as FTA"
+    PTS:
+      source: COMPUTED
+      confidence: "Medium"
+      method: "(fg - three_p) * 2 + three_p * 3 + ft"
+      note: "Underestimates without FT data"
+    ORB:
+      source: HEURISTIC
+      confidence: "Low"
+      method: "First player to gain ball proximity after own team's missed shot"
+    DRB:
+      source: HEURISTIC
+      confidence: "Low"
+      method: "First player to gain ball proximity after opponent's missed shot"
+    AST:
+      source: HEURISTIC
+      confidence: "Low"
+      method: "Teammate had possession within 4 seconds before made shot"
+    TO:
+      source: DETECTED
+      confidence: "Medium"
+      method: "PossessionTracker turnover result (possession ends to other team without shot)"
+    STL:
+      source: HEURISTIC
+      confidence: "Low"
+      method: "Ball proximity flips from Team A to Team B without shot event"
+    BLK:
+      source: UNAVAILABLE
+      confidence: "N/A"
+      method: "Requires detecting shot trajectory interruption — manual entry only"
+    PF:
+      source: UNAVAILABLE
+      confidence: "N/A"
+      method: "Requires audio/referee detection — manual entry only"
+    DEFLECTIONS:
+      source: MANUAL
+      confidence: "N/A"
+      method: "Manually tracked by scorekeeper — not detectable from video"
+    MIN:
+      source: HEURISTIC
+      confidence: "Low-Medium"
+      method: "Frames where player track confirmed / total game time"
+      caveat: "Degraded by track ID fragmentation"
+    PLUS_MINUS:
+      source: HEURISTIC
+      confidence: "Low"
+      method: "Scoring events attributed to all confirmed on-court tracks"
+      caveat: "Very noisy with fragmented track IDs"
+
+# ═══════════════════════════════════════════════════════════════════
+# THREE-POINT CLASSIFICATION
+# ═══════════════════════════════════════════════════════════════════
+feature_three_point_classification:
+  module: "app/events/three_point.py"
+  description: "Classify shots as 2-point or 3-point based on court coordinates"
+  constants:
+    three_pt_arc_radius_ft: 23.75
+    basket_center_ft: [25.0, 5.25]
+    corner_three_x_min_ft: 3.0
+    corner_three_y_max_ft: 14.0
+  algorithm: |
+    1. Check corner three: x <= 3ft from sideline AND y <= 14ft
+    2. Check arc three: distance from basket center > 23.75ft
+    3. If court_position is None (homography failed): default to 2-pointer
+  prerequisite: "Court homography calibration via CourtMapper"
+
+# ═══════════════════════════════════════════════════════════════════
+# EVENT DETECTORS (Heuristic)
+# ═══════════════════════════════════════════════════════════════════
+feature_rebound_detection:
+  module: "app/events/rebound_detector.py"
+  algorithm: |
+    After ShotEvent with MISSED outcome:
+    - Monitor frames F to F + (fps * 4) for ball reappearance
+    - First player to gain ball proximity gets the rebound
+    - If player.team == shooter.team: ORB
+    - If player.team != shooter.team: DRB
+    - Timeout after 4 seconds: no rebound attributed
+  confidence: "Low — ball frequently disappears after misses"
+
+feature_assist_detection:
+  module: "app/events/assist_detector.py"
+  algorithm: |
+    On made shot by Player B:
+    - Look back 6 seconds for same-team possession by Player A
+    - If Player A had possession and it transferred to Player B (same team)
+      before the score: Player A gets assist
+    - Requires PossessionTracker to distinguish pass (same team) from
+      turnover (different team)
+  confidence: "Low — requires stable ball-player proximity tracking"
+
+feature_steal_detection:
+  module: "app/events/steal_detector.py"
+  algorithm: |
+    When possession changes from Team A player to Team B player:
+    - No shot event between the two possessions
+    - Time gap < 2 seconds (rapid possession change)
+    - Team B player gets the steal
+  confidence: "Low — many false positives from loose balls"
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION PLAN
+# ═══════════════════════════════════════════════════════════════════
+implementation:
+  phase_1_core_counting_stats:
+    duration: "1-2 days"
+    description: "Data models, basic counting stats, renderers"
+    files_new:
+      - path: "app/analytics/box_score.py"
+        purpose: "BoxScoreProfile, StatSource, PlayerBoxScore, TeamBoxScore, GameBoxScore"
+      - path: "app/events/three_point.py"
+        purpose: "Three-point classification from court coordinates"
+      - path: "app/reporting/box_score_renderer.py"
+        purpose: "Professional text + JSON renderer, Youth impact line + table renderer"
+      - path: "tests/unit/test_box_score.py"
+        purpose: "Dataclass tests, computed property tests, profile filtering tests"
+      - path: "tests/unit/test_three_point.py"
+        purpose: "3-point classification geometry tests"
+      - path: "tests/unit/test_box_score_renderer.py"
+        purpose: "Renderer output format tests"
+    files_modified:
+      - path: "app/analytics/metrics.py"
+        change: "Replace player_stats() with box score generation via BoxScoreCompiler"
+      - path: "app/events/possession.py"
+        change: "Add pass result type (same-team possession change vs turnover)"
+      - path: "app/pipeline/run_analysis.py"
+        change: "Wire box score into pipeline, add --profile CLI option"
+      - path: "app/pipeline/pipeline_config.py"
+        change: "Add box_score_profile field (default PROFESSIONAL)"
+      - path: "main.py"
+        change: "Add --profile option to analyse command"
+    stats_delivered:
+      - "FG, FGA, FG% (from existing ShotDetector)"
+      - "3P, 3PA, 3P% (from court position + 3pt line math)"
+      - "2P, 2PA, 2P% (computed: FG - 3P)"
+      - "PTS (computed: 2P*2 + 3P*3, no FT)"
+      - "TO (from existing PossessionTracker)"
+      - "BoxScoreProfile enum (PROFESSIONAL, YOUTH)"
+      - "Youth impact line renderer"
+      - "stat_sources metadata per field"
+      - "Box score JSON + text output"
+
+  phase_2_heuristic_event_detection:
+    duration: "2-3 days"
+    description: "Rebound, assist, steal detection heuristics; minutes and +/-"
+    files_new:
+      - path: "app/events/rebound_detector.py"
+        purpose: "Post-miss ball tracking for ORB/DRB"
+      - path: "app/events/assist_detector.py"
+        purpose: "Pre-score possession chain for AST"
+      - path: "app/events/steal_detector.py"
+        purpose: "Cross-team possession flip for STL"
+      - path: "tests/unit/test_rebound_detector.py"
+      - path: "tests/unit/test_assist_detector.py"
+      - path: "tests/unit/test_steal_detector.py"
+    files_modified:
+      - path: "app/events/possession.py"
+        change: "Distinguish pass from turnover using team labels"
+      - path: "app/pipeline/run_analysis.py"
+        change: "Wire rebound/assist/steal detectors into frame processing loop"
+      - path: "app/analytics/box_score.py"
+        change: "Add youth KPI computed properties (AST/TO, DAI, EFF, REB/MIN)"
+    stats_delivered:
+      - "ORB, DRB, REB (rebound heuristic)"
+      - "AST (assist heuristic)"
+      - "STL (steal heuristic)"
+      - "MIN (track presence calculation)"
+      - "+/- (per-scoring-event player presence)"
+      - "Double-double / Triple-double detection"
+      - "Youth KPIs: AST/TO ratio, DAI, Effort Plays, REB/MIN"
+
+  phase_3_advanced_metrics:
+    duration: "1-2 days"
+    description: "Advanced analytics, coaching report integration, manual stat merge"
+    files_new:
+      - path: "app/analytics/advanced_stats.py"
+        purpose: "TS%, eFG%, USG%, simplified PER, BPM, VORP"
+      - path: "tests/unit/test_advanced_stats.py"
+    files_modified:
+      - path: "app/analytics/box_score.py"
+        change: "Add advanced stat properties to PlayerBoxScore"
+      - path: "app/reporting/box_score_renderer.py"
+        change: "Add advanced stats section to professional renderer"
+      - path: "app/reporting/coach_agent.py"
+        change: "Feed full box score to coaching report generator"
+    stats_delivered:
+      - "eFG% (no FT needed)"
+      - "TS% (simplified without FT)"
+      - "USG% (simplified without FT)"
+      - "Simplified PER (local, no league baselines)"
+      - "BPM approximation"
+      - "VORP (single-game)"
+      - "Manual stat override/merge capability (for FT, BLK, PF, DEFL from scorekeeper)"
+      - "Integration with coaching report"
+
+  phase_4_future:
+    description: "Capabilities requiring new detection infrastructure (not in current plan)"
+    items:
+      - "FT/FTA/FT% via scoreboard OCR or dead-ball detection"
+      - "BLK via shot trajectory interruption detection"
+      - "PF via audio processing or referee detection"
+      - "Track ID merging via appearance embedding or jersey number OCR"
+      - "Game clock awareness via scoreboard OCR"
+      - "DEFLECTIONS auto-detection (would require fine-tuned model for ball-hand contact)"
+
+# ═══════════════════════════════════════════════════════════════════
+# PIPELINE INTEGRATION
+# ═══════════════════════════════════════════════════════════════════
+pipeline_integration:
+  new_stages:
+    stage_3_6:
+      name: "Event Enrichment"
+      description: "Process shot events through 3pt classifier, run heuristic detectors"
+      components:
+        - "ThreePointClassifier — labels shots as 2pt/3pt from court_position"
+        - "ReboundDetector — post-miss ball tracking (Phase 2)"
+        - "AssistDetector — pre-score possession chain (Phase 2)"
+        - "StealDetector — cross-team possession flip (Phase 2)"
+    stage_4_modified:
+      name: "Box Score Computation"
+      description: "Replaces GameMetrics.player_stats() with BoxScoreCompiler"
+      components:
+        - "BoxScoreCompiler — aggregates all events into PlayerBoxScore per player"
+        - "TeamBoxScore — aggregates per team"
+        - "GameBoxScore — wraps both teams + metadata + profile"
+    stage_4_5:
+      name: "Advanced Metrics (Phase 3)"
+      description: "Compute TS%, eFG%, USG%, PER from box score data"
+    stage_5_modified:
+      name: "Output generation"
+      new_outputs:
+        - "box_score.json — full box score in JSON format"
+        - "box_score.txt — formatted text table (professional or youth)"
+
+  cli_changes:
+    new_option: "--profile professional|youth"
+    default: "professional"
+    effect: "Controls which renderer and KPIs are used in output"
+
+# ═══════════════════════════════════════════════════════════════════
+# VERIFICATION
+# ═══════════════════════════════════════════════════════════════════
+verification:
+  tests:
+    - "All existing 42 tests pass (backward-compatible)"
+    - "PlayerBoxScore dataclass: all fields default correctly"
+    - "Computed properties: FG%, 3P%, FT%, REB, PTS all correct"
+    - "BoxScoreProfile filters correct stats per profile"
+    - "Youth impact line renders correct format"
+    - "Youth KPIs compute correctly (AST/TO, DAI, EFF)"
+    - "Three-point classification geometry correct for corner and arc threes"
+    - "Professional renderer produces NBA-standard table"
+    - "JSON serialisation round-trips correctly"
+  integration:
+    - "Full pipeline run produces box_score.json and box_score.txt"
+    - "Youth profile produces impact lines for all players"
+    - "stat_sources correctly labels each stat's provenance"

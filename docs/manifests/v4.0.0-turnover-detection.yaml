@@ -1,0 +1,267 @@
+# HOOPS-VISION-2026: v4.0.0 — Counting Stats Pipeline (TOV% + OREB)
+# Purpose: Enable TOV% and OREB calculation in Four Factors from video
+# Date: 2026-03-17
+# Parent: v1.0.0-game-report-spec.yaml (section_3_four_factors.tov_pct, oreb)
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "4.0.0"
+  type: "pipeline_feature"
+  standard: "Counting Stats Detection from Video"
+
+# =================================================================
+# PROBLEM STATEMENT
+# =================================================================
+problem:
+  description: |
+    TOV% (25% weight) and OREB (20% weight) are the 2nd and 4th most
+    important Four Factors but currently show "N/A — Data not available"
+    for every game. Together they represent 45% of the Four Factors model.
+    The pipeline already has detectors (StealDetector, ReboundDetector) but
+    their output does not reliably flow into the box score stat sources.
+    Without TO and OREB data, the report cannot assess ball security or
+    second-chance opportunities — critical coaching insight for youth basketball.
+
+  current_state:
+    - "StealDetector exists and detects rapid cross-team possession changes"
+    - "ReboundDetector exists and classifies OREB/DREB from post-miss ball proximity"
+    - "PossessionTracker tracks ball possession by team"
+    - "BoxScoreCompiler.compile() accepts rebound_events and steal_events parameters"
+    - "BoxScoreCompiler already writes ORB/DRB/STL with StatSource.HEURISTIC when events are passed"
+    - "Neither TO nor ORB stat sources are reliably populated for pipeline-only games"
+    - "Four Factors TOV% and OREB always show N/A for pipeline-only games"
+
+  desired_state:
+    - "TOV% calculated for both teams in every pipeline-analysed game"
+    - "OREB count per team enables OREB grading in Four Factors"
+    - "Individual TO counts per player in box score"
+    - "Individual ORB/DRB counts per player in box score"
+    - "STL counts per player from existing StealDetector"
+    - "Key Stat Drivers section analyses ball security and second chances"
+    - "Coaching Assessment includes Turnover Management category"
+
+# =================================================================
+# DATA SOURCE CONTEXT
+# =================================================================
+data_sources:
+  api_ground_truth:
+    source: "kamper.basket.no (Norwegian Basketball Federation)"
+    provides: ["FGM", "3PM", "FTM", "FTA"]
+    does_not_provide: ["FGA per player", "OREB", "DREB", "AST", "TO", "STL", "BLK", "PF", "MIN", "+/-"]
+    note: |
+      The API records made shots only; FGA per player is unknown. Where FGA
+      is shown, it equals FGM (the minimum possible) which can produce eFG%
+      above 100% for players with three-pointers — this is mathematically
+      correct but reflects incomplete attempt data, not superhuman efficiency.
+
+  pipeline_heuristic:
+    source: "HoopsVision AI pipeline (YOLOv8 fine-tuned + VLM jersey recognition)"
+    provides_now: ["FGA (inflated ~3.5×)", "shot locations"]
+    provides_after_v4: ["OREB", "DREB", "AST", "STL", "TO", "+/-", "MIN"]
+    fga_caveat: |
+      Detection rate is ~3.5× actual FGA due to false positives from rebounds
+      and loose-ball events. Useful for relative quarter-to-quarter comparison,
+      not absolute volume.
+
+  counting_stats_gap: |
+    Counting stats (OREB, DREB, AST, TO, STL, BLK, PF, MIN, +/-): Not
+    available for games where kamper.basket.no does not track these stats
+    and no pipeline detections or scorekeeper data are present. The Four
+    Factors analysis is limited to eFG% and FT Rate; TOV% and OREB factors
+    show N/A.
+
+  blocks_and_fouls: |
+    No pipeline detector exists for BLK or PF. These require manual
+    scorekeeper entry. Without them, the Game Score formula omits the
+    +0.7×BLK and −0.4×PF terms.
+
+# =================================================================
+# TURNOVER DEFINITION (FIBA)
+# =================================================================
+definition:
+  turnover: |
+    A turnover occurs when the offensive team loses possession without
+    attempting a shot. Detected via:
+    1. Steal: possession flips to other team within short window (already detected)
+    2. Dead ball: possession ends without shot or score (out of bounds, violation)
+    3. Shot clock violation: possession exceeds time limit without attempt
+
+  attribution: |
+    The turnover is attributed to the last player with possession on the
+    offensive team. The steal is attributed to the first player with
+    possession on the defensive team.
+
+  offensive_rebound: |
+    An offensive rebound occurs when the shooting team recovers the ball
+    after a missed shot. Detected via post-miss ball proximity: the first
+    player within proximity threshold whose team matches the shooter's team
+    gets credited with an OREB. If the rebounder is on the opposing team,
+    it is a DREB.
+
+# =================================================================
+# IMPLEMENTATION
+# =================================================================
+implementation:
+  approach: |
+    Leverage existing StealDetector, ReboundDetector, and PossessionTracker.
+    Each steal event implies a turnover by the opposing team. Dead-ball
+    turnovers require detecting possession ending without a shot event.
+    Rebound events are already classified as OFFENSIVE/DEFENSIVE by
+    ReboundDetector — ensure they flow reliably into box score.
+
+  modules:
+    # ── TURNOVER DETECTION ──
+    turnover_detector:
+      path: "app/events/turnover_detector.py"
+      status: "NEW — to be created"
+      description: |
+        TurnoverDetector class that classifies possession changes as turnovers.
+        Sources:
+        1. StealEvent → TO for victim_track_id (live-ball turnover)
+        2. PossessionEvent ending without shot → dead-ball TO (if possession
+           changes team without intervening ShotEvent)
+      output: "TurnoverEvent(frame_idx, timestamp_sec, player_track_id, team, turnover_type)"
+
+    # ── EXISTING REBOUND DETECTOR ──
+    rebound_detector:
+      path: "app/events/rebound_detector.py"
+      status: "EXISTS — already running in pipeline"
+      description: |
+        ReboundDetector tracks ball proximity after missed shots.
+        Algorithm:
+        1. On MISSED shot, start 4-second monitoring window
+        2. Find closest player to ball each frame
+        3. First player within REBOUND_PROXIMITY_PX (100px) gets rebound
+        4. Compare rebounder team vs shooter team → OFFENSIVE or DEFENSIVE
+        Output: ReboundEvent(frame_idx, timestamp_sec, rebounder_track_id,
+                rebounder_team, shooter_track_id, shooter_team, rebound_type)
+
+    # ── EXISTING STEAL DETECTOR ──
+    steal_detector:
+      path: "app/events/steal_detector.py"
+      status: "EXISTS — already running in pipeline"
+      description: |
+        Detects rapid cross-team possession changes as steals.
+        Output: StealEvent with stealer_track_id and victim_track_id.
+        Each steal implies a turnover for the victim's team.
+
+    # ── BOX SCORE INTEGRATION ──
+    box_score_integration:
+      path: "app/analytics/box_score.py"
+      status: "EXISTS — already handles rebound/steal/assist events"
+      description: |
+        BoxScoreCompiler.compile() accepts rebound_events, steal_events,
+        and assist_events parameters. Already writes:
+        - ORB/DRB per player with StatSource.HEURISTIC (from rebound_events)
+        - STL per player with StatSource.HEURISTIC (from steal_events)
+        - AST per player with StatSource.HEURISTIC (from assist_events)
+        Needs: turnover_events parameter for TO attribution.
+      changes_needed:
+        - "Accept turnover_events parameter"
+        - "Write TO count per player with StatSource.HEURISTIC from TurnoverEvent"
+        - "Ensure rebound_events are actually passed from pipeline (verify wiring)"
+
+    # ── FOUR FACTORS UNLOCK ──
+    four_factors_unlock:
+      description: |
+        When TO data exists (StatSource.HEURISTIC or MANUAL on "to" key),
+        TOV% = TO / (FGA + 0.44 * FTA + TO) is computed and graded.
+        When OREB data exists (StatSource.HEURISTIC or MANUAL on "orb" key),
+        OREB count is graded against benchmarks.
+        N/A rule still applies when no data source exists for either stat.
+      four_factors_weights:
+        efg_pct: "40% — already working"
+        tov_pct: "25% — unlocked by TurnoverDetector"
+        ft_rate: "15% — already working"
+        oreb: "20% — unlocked by reliable ReboundDetector wiring"
+
+  pipeline_integration:
+    stage: "3.5c"
+    after: "assist and steal detection"
+    code: |
+      # In run_analysis.py after steal detection
+
+      # Turnover detection (NEW)
+      turnover_detector = TurnoverDetector(meta.fps)
+      turnover_events = turnover_detector.detect(
+          possession_events=result.possession_events,
+          shot_events=result.shot_events,
+          steal_events=steal_events,
+      )
+
+      # Rebound detection (EXISTING — verify wiring)
+      # ReboundDetector is already instantiated and running;
+      # ensure rebound_events list is passed to BoxScoreCompiler
+
+      # Feed ALL counting stats into box score compilation
+      game_box_score = compiler.compile(
+          shot_events=result.shot_events,
+          possession_events=result.possession_events,
+          tracks=result.tracks,
+          fps=meta.fps,
+          rebound_events=rebound_events,     # ORB + DRB
+          assist_events=assist_events,        # AST
+          steal_events=steal_events,          # STL
+          turnover_events=turnover_events,    # TO (NEW)
+      )
+
+# =================================================================
+# VERIFICATION
+# =================================================================
+verification:
+  tests:
+    - file: "tests/unit/test_turnover_detector.py"
+      status: "NEW — to be created"
+      cases:
+        - "Steal event produces corresponding turnover for victim"
+        - "Possession change without shot produces dead-ball turnover"
+        - "Possession change WITH intervening shot is NOT a turnover"
+        - "Turnover attributed to correct team and player"
+        - "Multiple turnovers in sequence counted correctly"
+
+    - file: "tests/unit/test_rebound_detector.py"
+      status: "EXISTS — verify coverage"
+      cases:
+        - "Missed shot within proximity window produces rebound event"
+        - "Same-team rebounder → ReboundType.OFFENSIVE"
+        - "Cross-team rebounder → ReboundType.DEFENSIVE"
+        - "Timeout after REBOUND_WINDOW_SEC → no rebound"
+        - "No ball detection → no rebound"
+
+    - file: "tests/unit/test_report_content.py"
+      status: "EXISTS — add cases"
+      cases:
+        - "TOV% shows growth-mindset grade (not N/A) when turnover data exists"
+        - "OREB shows growth-mindset grade (not N/A) when rebound data exists"
+        - "Key Stat Drivers analyses ball security when TO data present"
+        - "Key Stat Drivers analyses second chances when OREB data present"
+        - "Coaching Assessment includes Turnover Management when TO data present"
+
+  acceptance:
+    - "TOV% is computed and graded for pipeline-analysed games"
+    - "OREB is counted and graded for pipeline-analysed games"
+    - "Box score shows TO, STL, ORB, DRB, AST per player"
+    - "Four Factors section shows TOV% and OREB grades instead of N/A"
+    - "Key Stat Drivers covers all four factors"
+    - "All existing tests still pass"
+
+# =================================================================
+# PRIORITY AND DEPENDENCIES
+# =================================================================
+priority:
+  rationale: |
+    TOV% (25%) + OREB (20%) = 45% of Four Factors model currently showing N/A.
+    Fixing these two unlocks the full Four Factors analysis for pipeline games,
+    transforming the report from a scoring-only analysis into a complete
+    basketball evaluation.
+  dependency_chain:
+    - "TeamClassifier must reliably assign teams → required for OREB vs DREB and TO attribution"
+    - "ShotDetector must distinguish MADE vs MISSED → required for ReboundDetector trigger"
+    - "PossessionTracker must be running → required for dead-ball turnover detection"
+  implementation_order:
+    1: "Verify ReboundDetector events reach BoxScoreCompiler (may be a wiring gap)"
+    2: "Verify StealDetector events reach BoxScoreCompiler (may be a wiring gap)"
+    3: "Create TurnoverDetector from steal events + possession gap analysis"
+    4: "Wire turnover_events into BoxScoreCompiler"
+    5: "Verify Four Factors grades update from N/A to real values"
+    6: "Update Key Stat Drivers to cover all four factors"

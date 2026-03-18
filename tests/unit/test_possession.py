@@ -62,12 +62,11 @@ def test_no_event_on_short_possession():
     player1 = _make_player(1, 100, 200, 0)
     ball = _make_ball(120, 200, 0)
 
-    # Only 2 frames (below MIN_POSSESSION_FRAMES)
-    for i in range(2):
-        tracker.update(ball, [player1], i)
+    # Only 1 frame (below MIN_POSSESSION_FRAMES=2)
+    tracker.update(ball, [player1], 0)
 
     # Ball disappears
-    event = tracker.update(None, [player1], 3)
+    event = tracker.update(None, [player1], 1)
     assert event is None  # too short to count
 
 

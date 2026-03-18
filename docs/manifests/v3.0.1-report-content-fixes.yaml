@@ -1,0 +1,130 @@
+# HOOPS-VISION-2026: v3.0.1 — Game Report Content Quality Fixes
+# Purpose: Fix data provenance lies, template quality, and missing-data handling
+# Parent: v3.0.0-statistical-film-report.yaml
+# Date: 2026-03-17
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "3.0.1"
+  status: "IMPLEMENTED"
+  standard: "Game Report — Content Quality"
+
+# ═══════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═══════════════════════════════════════════════════════════════════
+overview:
+  description: |
+    The v3.0.0 Game Report has 8 content defects that make the output
+    misleading or unprofessional. This patch fixes report text quality
+    without changing data models or pipeline logic.
+
+  defects:
+    1_data_provenance_lie:
+      description: |
+        _scan_stat_sources() detects StatSource.MANUAL on scoring stats
+        (FGM, FTM etc. from kamper.basket.no API merge) and concludes
+        "manual scorekeeper data merged." But ALL counting stats
+        (REB, AST, TO, STL, BLK, PF, MIN) are zero. The data_sources_note
+        and methodology_notes claim data that does not exist.
+      fix: |
+        Check specifically for counting-stat keys (ast, orb, drb, stl, to,
+        blk, pf, min_played) when determining has_manual_counting. Scoring
+        stat MANUAL tags do NOT imply counting-stat availability.
+
+    2_tov_grade_misleading:
+      description: |
+        TOV% = 0.0% when TO data is zero (missing). Graded "A" (elite ball
+        security). This is missing data, not performance.
+      fix: |
+        When total_to == 0 for BOTH teams and no TO stat sources exist,
+        set tov_grade to "N/A" and skip TOV analysis in key_stat_drivers.
+
+    3_oreb_grade_misleading:
+      description: |
+        OREB = 0 when rebound data is zero (missing). Graded "D" (worst).
+        This is missing data, not poor rebounding.
+      fix: |
+        When total_orb == 0 for both teams and no ORB stat sources exist,
+        set oreb_grade to "N/A" and skip OREB analysis in key_stat_drivers.
+
+    4_scouting_sentence_fragments:
+      description: |
+        Template scouting reports use periods between clauses:
+        "scored 44 points. on 17-17 shooting. including 4-5 from three."
+        Should be: "scored 44 points on 17-17 shooting, including..."
+      fix: |
+        Rewrite _template_scouting_report() to build proper prose with
+        commas between clauses and a proper sentence structure.
+
+    5_one_sentence_summary:
+      description: |
+        Game summary template produces a single sentence. The v3.0.0
+        manifest requires "executive summary covering all sections."
+      fix: |
+        Expand _generate_game_summary() template to produce 3-5 sentences
+        covering: final score, top scorers, quarter flow, efficiency gap.
+
+    6_key_stat_drivers_cite_zeros:
+      description: |
+        Key stat drivers cite "TOV% 0.0% — negligible gap" and
+        "OREB 0 — negligible impact" as if these are real observations.
+      fix: |
+        When TO or OREB data is zero across both teams, replace the
+        paragraph with a note that data is not available for this factor.
+
+    7_coaching_missing_categories:
+      description: |
+        v3.0.0 manifest specifies turnovers and adjustments assessment
+        categories. Only rotation and offense are implemented.
+      fix: |
+        Add turnovers and adjustments categories to _generate_coaching_assessment().
+        Skip turnovers category when TO data is zero.
+
+    8_methodology_claims_full_hollinger:
+      description: |
+        Methodology note says "Game Score uses full Hollinger formula"
+        when BLK=0, PF=0, REB=0, AST=0. The formula runs but all
+        counting-stat terms are zero, making it a scoring-only formula.
+      fix: |
+        Distinguish between "full formula with real data" and "formula
+        runs but counting-stat terms contribute zero." Note which terms
+        are active.
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION
+# ═══════════════════════════════════════════════════════════════════
+implementation:
+  files_modified:
+    - path: "app/reporting/film_report.py"
+      changes:
+        - "_scan_stat_sources() → _scan_stat_sources() returns (has_manual_scoring, has_manual_counting, has_heuristic)"
+        - "_generate_data_sources_note() uses has_manual_counting not has_manual"
+        - "_methodology_notes() uses has_manual_counting not has_manual"
+        - "_generate_game_summary() template expanded to 3-5 sentences"
+        - "_template_scouting_report() rewritten with proper prose"
+        - "_generate_key_stat_drivers() skips zero-data factors"
+        - "_generate_coaching_assessment() adds turnovers + adjustments"
+
+    - path: "app/analytics/advanced_stats.py"
+      changes:
+        - "_grade_tov() accepts optional has_data flag, returns 'N/A' when False"
+        - "_grade_oreb() accepts optional has_data flag, returns 'N/A' when False"
+        - "compute_four_factors() passes has_data flags to graders"
+
+  files_unchanged:
+    - "app/analytics/box_score.py — no data model changes"
+    - "scripts/compile_film_report.py — no pipeline changes"
+    - "app/reporting/docx_renderer.py — handles N/A grades via existing fallback"
+
+# ═══════════════════════════════════════════════════════════════════
+# VERIFICATION
+# ═══════════════════════════════════════════════════════════════════
+verification:
+  tests:
+    - "All existing tests pass (no data model changes)"
+    - "Regenerated film_report.json has no false claims about counting stats"
+    - "TOV% grade is 'N/A' when TO data is zero"
+    - "OREB grade is 'N/A' when OREB data is zero"
+    - "Scouting reports read as proper prose paragraphs"
+    - "Game summary is 3-5 sentences"
+    - "Methodology note accurately describes which Hollinger terms are active"

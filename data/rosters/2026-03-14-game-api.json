@@ -1,0 +1,1040 @@
+{
+  "source": "kamper.basket.no",
+  "match_id": 8254973,
+  "match_date": "2026-03-14T00:00:00",
+  "tournament": "ØST GU16B - avd. 01",
+  "venue": "Helse Arena bane B",
+  "result": "69-82",
+  "home": {
+    "name": "Notodden Thunders (D)",
+    "team_id": 1016026,
+    "players": [
+      {
+        "number": 0,
+        "name": "Berg-Jacobsen, Jakob Sollid",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Rønningen, Philip Castaritas",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Mesfin, Asier Fitsum",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Grenzer-Jamtveit, Nore",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Stenersen, Eirik Andreas Brokke",
+        "captain": false
+      }
+    ],
+    "staff": [],
+    "scores_cumulative": [
+      18,
+      38,
+      57,
+      69
+    ]
+  },
+  "away": {
+    "name": "EB-85",
+    "team_id": 452615,
+    "players": [
+      {
+        "number": 0,
+        "name": "Owren, Oskar Robles",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Grønneberg, Ulrik Holm",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Sebastian Sjödahl, David Gustaf",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Stornes, Victor",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Moxness, Ludvig Hammer",
+        "captain": false
+      },
+      {
+        "number": 0,
+        "name": "Haugen, Jesper",
+        "captain": false
+      }
+    ],
+    "staff": [],
+    "scores_cumulative": [
+      29,
+      41,
+      60,
+      82
+    ]
+  },
+  "play_by_play": {
+    "shots": [
+      {
+        "player": "Jakob Sollid Berg-Jacobsen",
+        "team": "home",
+        "time": 24,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 53,
+        "quarter": 2,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Oskar Robles Owren",
+        "team": "away",
+        "time": 58,
+        "quarter": 3,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Oskar Robles Owren",
+        "team": "away",
+        "time": 58,
+        "quarter": 3,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 111,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 117,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 124,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 124,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 128,
+        "quarter": 2,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 148,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 148,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 209,
+        "quarter": 1,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 209,
+        "quarter": 1,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 220,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 223,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 230,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Jakob Sollid Berg-Jacobsen",
+        "team": "home",
+        "time": 252,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Oskar Robles Owren",
+        "team": "away",
+        "time": 256,
+        "quarter": 1,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 303,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 318,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 318,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 318,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 318,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 318,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 324,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Oskar Robles Owren",
+        "team": "away",
+        "time": 326,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Nore Grenzer-Jamtveit",
+        "team": "home",
+        "time": 344,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 347,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Jesper Haugen",
+        "team": "away",
+        "time": 355,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 420,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 422,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 430,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 437,
+        "quarter": 3,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 439,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 439,
+        "quarter": 1,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 442,
+        "quarter": 4,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Jakob Sollid Berg-Jacobsen",
+        "team": "home",
+        "time": 450,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 451,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 454,
+        "quarter": 2,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 454,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 504,
+        "quarter": 4,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 505,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 506,
+        "quarter": 1,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 532,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 553,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Oskar Robles Owren",
+        "team": "away",
+        "time": 559,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 559,
+        "quarter": 2,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Eirik Andreas Brokke Stenersen",
+        "team": "home",
+        "time": 607,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Eirik Andreas Brokke Stenersen",
+        "team": "home",
+        "time": 607,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 611,
+        "quarter": 3,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 611,
+        "quarter": 3,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 611,
+        "quarter": 3,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Eirik Andreas Brokke Stenersen",
+        "team": "home",
+        "time": 612,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 619,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 619,
+        "quarter": 2,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 621,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 624,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 625,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 625,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 634,
+        "quarter": 2,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 634,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 642,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 646,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 658,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 718,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 718,
+        "quarter": 2,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Eirik Andreas Brokke Stenersen",
+        "team": "home",
+        "time": 729,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Jakob Sollid Berg-Jacobsen",
+        "team": "home",
+        "time": 742,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 744,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 744,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 754,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 806,
+        "quarter": 1,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 811,
+        "quarter": 4,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 820,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 820,
+        "quarter": 1,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Jesper Haugen",
+        "team": "away",
+        "time": 835,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 836,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 838,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 839,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 839,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 846,
+        "quarter": 1,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 846,
+        "quarter": 1,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 847,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 854,
+        "quarter": 1,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 854,
+        "quarter": 1,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 854,
+        "quarter": 1,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 859,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 900,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 904,
+        "quarter": 2,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 904,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 907,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Asier Fitsum Mesfin",
+        "team": "home",
+        "time": 911,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 922,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 929,
+        "quarter": 2,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Philip Castaritas Rønningen",
+        "team": "home",
+        "time": 934,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Nore Grenzer-Jamtveit",
+        "team": "home",
+        "time": 935,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Nore Grenzer-Jamtveit",
+        "team": "home",
+        "time": 935,
+        "quarter": 2,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 937,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 943,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "David Gustaf Sebastian Sjödahl",
+        "team": "away",
+        "time": 953,
+        "quarter": 3,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Ulrik Holm Grønneberg",
+        "team": "away",
+        "time": 957,
+        "quarter": 4,
+        "type": "3pt",
+        "made": true,
+        "points": 3
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 1000,
+        "quarter": 4,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 1000,
+        "quarter": 4,
+        "type": "ft",
+        "made": true,
+        "points": 1
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 1000,
+        "quarter": 1,
+        "type": "2pt",
+        "made": true,
+        "points": 2
+      },
+      {
+        "player": "Victor Stornes",
+        "team": "away",
+        "time": 1000,
+        "quarter": 1,
+        "type": "ft",
+        "made": false,
+        "points": 0
+      }
+    ],
+    "total_shots": 105,
+    "made_shots": 81
+  }
+}

@@ -23,28 +23,41 @@ class ShotDetector:
     2. Detect upward arc (ball y decreasing = moving up in frame coords)
     3. When ball reaches apex and starts descending, record shot attempt
     4. Classify made/missed by checking if ball passes near basket bbox
+
+    Three-layer defence against false positives (v1.7.0):
+    - Layer 1: Resolution-aware thresholds (frame_height * 0.04)
+    - Layer 2: Basket proximity gate (ball must be near a basket)
+    - Layer 3: Temporal dedup (max 1 shot per 4s per basket)
     """
 
     # Minimum frames of upward movement to qualify as a shot arc
     MIN_ARC_FRAMES = 4
-    # Minimum vertical displacement (pixels) for a shot
-    MIN_VERTICAL_DISPLACEMENT = 40
-    # Cooldown frames after detecting a shot
-    COOLDOWN_FRAMES = 30
     # Frames before/after shot for clip boundaries
     CLIP_PADDING_FRAMES = 45
     # Proximity as a multiple of basket bbox diagonal (resolution-independent)
     BASKET_PROXIMITY_RATIO = 1.5
     # Fallback absolute proximity when basket bbox is unreliable (tiny)
     BASKET_PROXIMITY_MIN_PX = 120
+    # Layer 2: max distance from basket as fraction of frame width
+    SHOT_ZONE_RATIO = 0.25
+    # Layer 3: temporal dedup window in seconds
+    DEDUP_WINDOW_SEC = 4.0
 
-    def __init__(self, frame_height: int, fps: float):
+    def __init__(self, frame_height: int, fps: float, frame_width: int = 1920,
+                 sample_rate: int = 1):
         self.frame_height = frame_height
+        self.frame_width = frame_width
         self.fps = fps
+        self.sample_rate = sample_rate
         self.trajectory: deque[BallPosition] = deque(maxlen=60)
         self._cooldown = 0
         self._shot_count = 0
         self._last_basket_detection: Detection | None = None
+        # Layer 1: Resolution-aware thresholds
+        self.MIN_VERTICAL_DISPLACEMENT = int(frame_height * 0.04)  # 86px at 4K
+        self.COOLDOWN_FRAMES = int(fps * 5.0 / sample_rate) if sample_rate > 0 else 30
+        # Layer 3: recent shots for temporal dedup
+        self._recent_shots: list[ShotEvent] = []
 
     def update(
         self,
@@ -82,7 +95,24 @@ class ShotDetector:
         if self._cooldown > 0 or len(self.trajectory) < self.MIN_ARC_FRAMES:
             return None
 
+        # Layer 2: Only check for shots when ball is near a basket
+        if not self._in_shot_zone(cx):
+            return None
+
         return self._check_arc(players, frame_idx)
+
+    def _in_shot_zone(self, ball_x: float) -> bool:
+        """Layer 2: Check if ball is near enough to a basket to be a shot.
+
+        Only triggers shot detection when ball is within SHOT_ZONE_RATIO of
+        frame width from the nearest detected basket. If no basket has been
+        detected yet, allow all shots (can't filter without data).
+        """
+        if self._last_basket_detection is None:
+            return True  # Can't filter without basket position
+        basket_x = self._last_basket_detection.bbox.center[0]
+        max_dist = self.frame_width * self.SHOT_ZONE_RATIO
+        return abs(ball_x - basket_x) < max_dist
 
     def _check_arc(
         self, players: list[TrackedPlayer], frame_idx: int
@@ -153,9 +183,11 @@ class ShotDetector:
         frame_idx: int,
         apex_y: float,
         ball_loss: bool = False,
-    ) -> ShotEvent:
-        """Create a ShotEvent from detected arc."""
-        self._shot_count += 1
+    ) -> ShotEvent | None:
+        """Create a ShotEvent from detected arc.
+
+        Returns None if the shot is suppressed by temporal dedup (Layer 3).
+        """
         self._cooldown = self.COOLDOWN_FRAMES
         self.trajectory.clear()
 
@@ -169,15 +201,34 @@ class ShotDetector:
             outcome = self._classify_outcome(arc_positions)
 
         start_frame = arc_positions[0].frame_idx
-        return ShotEvent(
+        timestamp = start_frame / self.fps
+        # Store ball position at shot start for chart coordinates
+        ball_pos = arc_positions[0]
+
+        event = ShotEvent(
             frame_idx=start_frame,
-            timestamp_sec=start_frame / self.fps,
+            timestamp_sec=timestamp,
             shooter_track_id=shooter_id,
             court_position=None,  # Set later by court mapper
             outcome=outcome,
             clip_start_frame=max(0, start_frame - self.CLIP_PADDING_FRAMES),
             clip_end_frame=frame_idx + self.CLIP_PADDING_FRAMES,
+            ball_x=ball_pos.x,
+            ball_y=ball_pos.y,
         )
+
+        # Layer 3: Temporal dedup — max 1 shot per DEDUP_WINDOW_SEC
+        # Prune old entries first
+        cutoff = timestamp - self.DEDUP_WINDOW_SEC
+        self._recent_shots = [s for s in self._recent_shots if s.timestamp_sec > cutoff]
+
+        if self._recent_shots:
+            # Already have a shot in the window — suppress duplicate
+            return None
+
+        self._shot_count += 1
+        self._recent_shots.append(event)
+        return event
 
     def _basket_proximity_px(self) -> float:
         """Compute proximity threshold from basket bbox size.

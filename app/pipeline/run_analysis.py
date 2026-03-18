@@ -6,21 +6,33 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.analytics.box_score import BoxScoreCompiler, BoxScoreProfile, GameBoxScore
+from app.events.assist_detector import AssistDetector
+from app.events.rebound_detector import ReboundDetector
+from app.events.steal_detector import StealDetector
 from app.analytics.metrics import GameMetrics
 from app.analytics.score_flow import ScoreFlowGenerator
 from app.analytics.shot_chart import ShotChartGenerator
 from app.config.roster import Roster, load_roster
 from app.events.event_types import PossessionEvent, ShotEvent
+from app.events.three_point import ThreePointClassifier
+from app.reporting.box_score_renderer import BoxScoreRenderer
 from app.events.possession import PossessionTracker
 from app.events.shot_detector import ShotDetector
 from app.ingest.video_loader import VideoLoader
 from app.pipeline.pipeline_config import PipelineConfig
 from app.reporting.clips import ClipGenerator
 from app.reporting.coach_agent import run_coaching_agent
+from app.tracking.jersey_number import JerseyNumberReader, sherlock_resolve
 from app.tracking.team_classifier import TeamClassifier
 from app.tracking.tracker import PlayerTracker, TrackedPlayer
 from app.vision.court_mapper import CourtMapper
 from app.vision.detector import PlayerBallDetector
+from app.vision.scoreboard_ocr import (
+    QuarterBoundaryDetector,
+    quarter_boundaries_to_ranges,
+    timestamp_to_quarter,
+)
 
 
 @dataclass
@@ -33,6 +45,8 @@ class PipelineResult:
     stats_path: str = ""
     possessions_path: str = ""
     report_path: str = ""
+    box_score_json_path: str = ""
+    box_score_txt_path: str = ""
     clip_paths: list[str] = field(default_factory=list)
     timing: dict = field(default_factory=dict)
 
@@ -63,7 +77,7 @@ class PipelineOrchestrator:
 
         # Stage 1: Load video and get metadata
         print("Stage 1: Loading video...")
-        with VideoLoader(video_path) as loader:
+        with VideoLoader(video_path, decode_width=self.config.decode_width) as loader:
             meta = loader.metadata()
             print(f"  Video: {meta.width}x{meta.height}, {meta.fps:.1f}fps, "
                   f"{meta.duration_sec:.1f}s, {meta.frame_count} frames")
@@ -73,16 +87,35 @@ class PipelineOrchestrator:
             detector = PlayerBallDetector(self.config)
             tracker = PlayerTracker()
             court_mapper = CourtMapper()
-            shot_detector = ShotDetector(meta.height, meta.fps)
-            possession_tracker = PossessionTracker(meta.fps)
+            shot_detector = ShotDetector(
+                meta.height, meta.fps,
+                frame_width=meta.width,
+                sample_rate=self.config.frame_sample_rate,
+            )
+            possession_tracker = PossessionTracker(meta.fps, frame_width=meta.width)
             team_classifier = TeamClassifier() if self.config.enable_team_classification else None
+            jersey_reader = JerseyNumberReader(
+                vlm_backend=self.config.vlm_backend,
+            )
+            rebound_detector = ReboundDetector(meta.fps)
+            # v1.7.0: Observational ball-in-hands and pass detection
+            from app.events.ball_possession import BallInHandsDetector
+            from app.events.pass_detector import PassDetector
+            ball_hands_detector = BallInHandsDetector(frame_width=meta.width)
+            pass_detector = PassDetector(
+                fps=meta.fps, frame_width=meta.width, frame_height=meta.height,
+            )
 
             all_tracks: list[TrackedPlayer] = []
             court_calibrated = False
             frames_processed = 0
+            # Store ball-player data per frame for post-processing possession pass
+            ball_player_frames: list[tuple[Detection | None, list[TrackedPlayer], int]] = []
 
             # Stage 3: Process frames
-            print(f"Stage 3: Processing frames (sample_rate={self.config.frame_sample_rate})...")
+            total_sampled = meta.frame_count // self.config.frame_sample_rate
+            print(f"Stage 3: Processing frames (sample_rate={self.config.frame_sample_rate}, "
+                  f"~{total_sampled} frames to process)...")
             t_detect = time.perf_counter()
 
             batch_frames = []
@@ -119,6 +152,10 @@ class PipelineOrchestrator:
                         for p in players:
                             team_classifier.collect_sample(p.track_id, frame, p.bbox)
 
+                    # Collect jersey number readings via OCR
+                    for p in players:
+                        jersey_reader.collect_sample(p.track_id, frame, p.bbox)
+
                     # Detect shots (with basket detection for outcome classification)
                     ball_dets = [d for d in detections if d.class_id == 32]
                     ball = ball_dets[0] if ball_dets else None
@@ -126,21 +163,64 @@ class PipelineOrchestrator:
                     basket = basket_dets[0] if basket_dets else None
                     shot = shot_detector.update(ball, players, frame_idx, basket_detection=basket)
                     if shot:
-                        if court_calibrated and ball:
+                        # Basket-relative court coordinates (v1.7.0)
+                        # Prefer basket-relative over homography — more reliable
+                        if shot.ball_x is not None and basket is not None:
+                            from app.analytics.shot_chart import ShotChartGenerator
+                            bcx, bcy = basket.bbox.center
+                            shot.court_position = ShotChartGenerator.basket_relative_coords(
+                                shot.ball_x, shot.ball_y,
+                                bcx, bcy, basket.bbox.width,
+                                meta.width, meta.height,
+                            )
+                        elif court_calibrated and ball:
+                            # Fallback to homography if no basket detection
                             bx, by = ball.bbox.center
                             shot.court_position = court_mapper.to_court_coords(bx, by)
                         result.shot_events.append(shot)
                         poss = possession_tracker.end_possession_on_shot(frame_idx)
                         if poss:
                             result.possession_events.append(poss)
+                        # Register missed shots for rebound detection
+                        rebound_detector.on_missed_shot(shot)
                     else:
                         poss = possession_tracker.update(ball, players, frame_idx)
                         if poss:
                             result.possession_events.append(poss)
 
+                    # v1.7.0: Ball-in-hands detection (observational possession)
+                    bih_transition = ball_hands_detector.update(ball, players, frame_idx)
+                    if bih_transition:
+                        pass_evt = pass_detector.on_transition(bih_transition)
+                        if pass_evt and team_classifier is not None:
+                            # Label pass with team info if available
+                            pass_evt.from_team = team_classifier.get_team(
+                                pass_evt.from_player_track_id
+                            )
+                            pass_evt.to_team = team_classifier.get_team(
+                                pass_evt.to_player_track_id
+                            )
+                    # Track ball position during pass transit
+                    pass_detector.track_ball(ball, frame_idx)
+
+                    # Store ball-player data for post-processing possession pass
+                    ball_player_frames.append((ball, players, frame_idx))
+
+                    # Check for rebounds (runs every frame during rebound window)
+                    rebound_detector.update(ball, players, frame_idx)
+
                     frames_processed += 1
-                    if frames_processed % 100 == 0:
-                        print(f"  Processed {frames_processed} frames...")
+                    if frames_processed % 50 == 0 or frames_processed == total_sampled:
+                        pct = frames_processed / total_sampled * 100 if total_sampled else 0
+                        bar_len = 30
+                        filled = int(bar_len * frames_processed / total_sampled) if total_sampled else 0
+                        bar = "█" * filled + "░" * (bar_len - filled)
+                        elapsed = time.perf_counter() - t_detect
+                        fps = frames_processed / elapsed if elapsed > 0 else 0
+                        eta = (total_sampled - frames_processed) / fps if fps > 0 else 0
+                        eta_min, eta_sec = divmod(int(eta), 60)
+                        print(f"\r  {bar} {pct:5.1f}% │ {frames_processed}/{total_sampled} │ "
+                              f"{fps:.0f} fps │ ETA {eta_min}m{eta_sec:02d}s", end="", flush=True)
 
             for frame_idx, frame in loader.frames(sample_rate=self.config.frame_sample_rate):
                 # Court calibration (first 30 sampled frames)
@@ -162,10 +242,13 @@ class PipelineOrchestrator:
                 _process_batch(batch_frames, batch_indices)
 
         result.timing["detection"] = time.perf_counter() - t_detect
+        print()  # newline after progress bar
         print(f"  Detection complete: {frames_processed} frames in "
               f"{result.timing['detection']:.1f}s")
         print(f"  Found {len(result.shot_events)} shots, "
               f"{len(result.possession_events)} possessions")
+
+        team_map: dict[int, str] = {}  # populated by Stage 3.5 if team classification succeeds
 
         # Stage 3.5: Classify teams and label shots + possessions
         if team_classifier is not None and team_classifier.track_count >= 2:
@@ -190,21 +273,280 @@ class PipelineOrchestrator:
             for t in all_tracks:
                 t.team = team_classifier.get_team(t.track_id)
 
+            # Re-label rebound events with team info and re-classify OREB/DREB
+            from app.events.rebound_detector import ReboundType
+            relabelled = 0
+            reclassified = 0
+            for reb in rebound_detector.events:
+                reb_team = team_classifier.get_team(reb.rebounder_track_id)
+                shooter_team = None
+                if reb.shooter_track_id is not None:
+                    shooter_team = team_classifier.get_team(reb.shooter_track_id)
+                if reb_team:
+                    reb.rebounder_team = reb_team
+                    relabelled += 1
+                if reb_team and shooter_team:
+                    old_type = reb.rebound_type
+                    reb.rebound_type = (
+                        ReboundType.OFFENSIVE
+                        if reb_team == shooter_team
+                        else ReboundType.DEFENSIVE
+                    )
+                    if reb.rebound_type != old_type:
+                        reclassified += 1
+                if shooter_team:
+                    reb.shooter_team = shooter_team
+            oreb_count = sum(
+                1 for r in rebound_detector.events
+                if r.rebound_type == ReboundType.OFFENSIVE
+            )
+            dreb_count = sum(
+                1 for r in rebound_detector.events
+                if r.rebound_type == ReboundType.DEFENSIVE
+            )
+            print(f"  Rebounds relabelled: {relabelled}, reclassified: {reclassified}")
+            print(f"  OREB: {oreb_count}, DREB: {dreb_count}")
+
+        # Stage 3.5b: Post-processing possession pass with real team map
+        # Re-run possession tracking now that team classification is done.
+        # The initial pass used parity heuristic; this pass uses real teams.
+        if team_classifier is not None and team_map:
+            print("Stage 3.5b: Post-processing possession tracking with real teams...")
+            post_poss_tracker = PossessionTracker(
+                meta.fps, frame_width=meta.width, team_map=team_map,
+            )
+            for ball, players, frame_idx in ball_player_frames:
+                post_poss_tracker.update(ball, players, frame_idx)
+            # Replace the original (broken) possession events
+            result.possession_events = post_poss_tracker.events
+            print(f"  Post-processing produced {len(result.possession_events)} possessions "
+                  f"(was {len(possession_tracker.events)} from initial pass)")
+
+        # Label pass events with team info (now that team classification is done)
+        if team_map:
+            for pe in pass_detector.events:
+                if pe.from_team is None:
+                    pe.from_team = team_map.get(pe.from_player_track_id)
+                if pe.to_team is None:
+                    pe.to_team = team_map.get(pe.to_player_track_id)
+
+        pass_count = len(pass_detector.events)
+        bih_count = len(ball_hands_detector.transitions)
+        print(f"  Ball-in-hands transitions: {bih_count}, passes detected: {pass_count}")
+
+        # Stage 3.5c: Detect assists and steals from possession/shot/pass events
+        assist_detector = AssistDetector(meta.fps)
+        steal_detector = StealDetector(meta.fps)
+
+        # Pass observed pass events to assist detector (preferred over proximity)
+        observed_passes = pass_detector.events if pass_detector.events else None
+        for shot in result.shot_events:
+            assist_detector.check(shot, result.possession_events,
+                                  pass_events=observed_passes)
+
+        steal_events = steal_detector.check(result.possession_events)
+
+        assist_count = len(assist_detector.events)
+        pass_assists = sum(1 for a in assist_detector.events if a.source == "pass")
+        prox_assists = assist_count - pass_assists
+        steal_count = len(steal_events)
+        rebound_count = len(rebound_detector.events)
+        print(f"  Events: {rebound_count} rebounds, {assist_count} assists "
+              f"({pass_assists} observed, {prox_assists} proximity), {steal_count} steals")
+
+        # Stage 3.6: Resolve jersey numbers via VLM
+        print("Stage 3.6: Resolving jersey numbers via VLM...")
+        print(f"  Collected crops from {jersey_reader.tracks_with_crops} tracks")
+        # Resolve ALL shooter tracks (made + missed) for FGA attribution
+        shooter_ids = {
+            int(s.shooter_track_id)
+            for s in result.shot_events
+            if s.shooter_track_id is not None
+        }
+        print(f"  Resolving {len(shooter_ids)} shooter tracks (all outcomes)...")
+        jersey_map = jersey_reader.resolve(track_ids=shooter_ids)
+        print(f"  VLM: {jersey_reader.total_readings} readings from "
+              f"{jersey_reader.tracks_with_readings} tracks → "
+              f"{len(jersey_map)} resolved jersey numbers")
+        for shot in result.shot_events:
+            if shot.shooter_track_id is not None:
+                shot.jersey_number = jersey_map.get(shot.shooter_track_id)
+
+        # Save player descriptions
+        descriptions = jersey_reader.player_descriptions
+        if descriptions:
+            desc_path = str(output_dir / "player_descriptions.json")
+            import json as _json
+            desc_data = {
+                str(tid): {
+                    "track_id": d.track_id,
+                    "jersey_number": d.jersey_number,
+                    "team_color": d.team_color,
+                    "description": d.description,
+                }
+                for tid, d in descriptions.items()
+            }
+            with open(desc_path, "w") as f:
+                _json.dump(desc_data, f, indent=2)
+            print(f"  Saved {len(descriptions)} player descriptions")
+
+        # Stage 3.6b: Sherlock deductive pass for unresolved tracks (all outcomes)
+        unresolved_shots = [
+            s for s in result.shot_events
+            if s.shooter_track_id is not None
+            and s.jersey_number is None
+        ]
+        if roster and unresolved_shots:
+            print(f"Stage 3.6b: Sherlock deduction on {len(unresolved_shots)} unresolved tracks...")
+            sherlock_map, sherlock_desc = sherlock_resolve(
+                video_path=video_path,
+                all_tracks=all_tracks,
+                fps=meta.fps,
+                roster_home={"name": roster.home_team_name, "players": [
+                    {"number": p.number, "name": p.name} for p in roster.home_players
+                ]},
+                roster_away={"name": roster.away_team_name, "players": [
+                    {"number": p.number, "name": p.name} for p in roster.away_players
+                ]},
+                descriptions=descriptions,
+                jersey_map=jersey_map,
+                unresolved_shots=unresolved_shots,
+                vlm_backend=self.config.vlm_backend,
+            )
+            # Merge results
+            jersey_map.update(sherlock_map)
+            for shot in result.shot_events:
+                if shot.shooter_track_id is not None and shot.jersey_number is None:
+                    shot.jersey_number = sherlock_map.get(int(shot.shooter_track_id))
+            # Update descriptions file
+            if sherlock_desc:
+                for tid, d in sherlock_desc.items():
+                    descriptions[tid] = d
+                desc_data = {
+                    str(tid): {
+                        "track_id": d.track_id,
+                        "jersey_number": d.jersey_number,
+                        "team_color": d.team_color,
+                        "description": d.description,
+                    }
+                    for tid, d in descriptions.items()
+                }
+                with open(str(output_dir / "player_descriptions.json"), "w") as f:
+                    json.dump(desc_data, f, indent=2)
+
+        # Report FGA attribution rate
+        if result.shot_events:
+            attributed = sum(1 for s in result.shot_events if s.jersey_number is not None)
+            total = len(result.shot_events)
+            made_attr = sum(1 for s in result.shot_events if s.jersey_number is not None and s.outcome.value == "made")
+            missed_attr = sum(1 for s in result.shot_events if s.jersey_number is not None and s.outcome.value == "missed")
+            made_total = sum(1 for s in result.shot_events if s.outcome.value == "made")
+            missed_total = sum(1 for s in result.shot_events if s.outcome.value == "missed")
+            print(f"  FGA attribution: {attributed}/{total} shots have jersey numbers ({attributed/total*100:.0f}%)")
+            print(f"    Made: {made_attr}/{made_total}, Missed: {missed_attr}/{missed_total}")
+
+        # Stage 3.7: Detect quarter boundaries from scoreboard
+        quarter_ranges = None
+        game_start = self.config.game_start_sec
+        if game_start > 0:
+            print(f"Stage 3.7: Detecting quarter boundaries (game start={game_start:.0f}s)...")
+            qbd = QuarterBoundaryDetector(sample_interval_sec=15.0)
+            boundaries = qbd.detect(video_path, game_start_sec=game_start)
+            if boundaries:
+                quarter_ranges = quarter_boundaries_to_ranges(
+                    boundaries, game_start, meta.duration_sec,
+                )
+                print(f"  Detected {len(boundaries)} boundaries → "
+                      f"{len(quarter_ranges)} quarters")
+                # Filter out warmup shots (before game start)
+                pre_game = [s for s in result.shot_events
+                            if s.timestamp_sec < game_start]
+                if pre_game:
+                    result.shot_events = [s for s in result.shot_events
+                                          if s.timestamp_sec >= game_start]
+                    print(f"  Excluded {len(pre_game)} warmup shots")
+
         # Stage 4: Compute analytics
         print("Stage 4: Computing analytics...")
+        num_quarters = None
+        if roster and roster.has_scores():
+            num_quarters = max(len(roster.home_scores), len(roster.away_scores))
+
         metrics = GameMetrics(
             result.shot_events,
             result.possession_events,
             all_tracks,
             meta.fps,
             quarter_duration_sec=self.config.quarter_duration_sec,
+            num_quarters=num_quarters,
+            quarter_ranges=quarter_ranges,
         )
 
-        # Save player stats
+        # Save player stats (legacy format)
         stats_path = str(output_dir / "player_stats.json")
         with open(stats_path, "w") as f:
             json.dump(metrics.to_summary_dict(), f, indent=2)
         result.stats_path = stats_path
+
+        # Stage 4b: Compile box score
+        print("Stage 4b: Compiling box score...")
+        profile = BoxScoreProfile(self.config.box_score_profile)
+        three_pt = ThreePointClassifier()
+        compiler = BoxScoreCompiler(roster=roster, three_point_classifier=three_pt)
+        game_box_score = compiler.compile(
+            result.shot_events,
+            result.possession_events,
+            all_tracks,
+            meta.fps,
+            profile=profile,
+            rebound_events=rebound_detector.events,
+            assist_events=assist_detector.events,
+            steal_events=steal_detector.events,
+            sample_rate=self.config.frame_sample_rate,
+        )
+        game_box_score.video_path = video_path
+        game_box_score.detection_summary = {
+            "frames_processed": frames_processed,
+            "court_calibrated": court_calibrated,
+            "total_shots": len(result.shot_events),
+            "total_possessions": len(result.possession_events),
+            "total_tracks": len(set(t.track_id for t in all_tracks)),
+        }
+        if roster:
+            game_box_score.game_date = getattr(roster, 'game_date', None)
+
+        # Stage 4b.5: Merge scorekeeper data (manual stats)
+        if self.config.scorekeeper_path:
+            from app.scoring.scorekeeper import ScorekeeperData, merge_scorekeeper
+            print("Stage 4b.5: Merging scorekeeper data...")
+            sk_data = ScorekeeperData.from_json(self.config.scorekeeper_path)
+            merge_scorekeeper(game_box_score, sk_data)
+            merged_stats = sum(
+                1 for p in game_box_score.home.players + game_box_score.away.players
+                for s in p.stat_sources.values() if s.value == "manual"
+            )
+            print(f"  Merged {merged_stats} manual stat entries")
+
+        # Save box score JSON
+        renderer = BoxScoreRenderer()
+        box_json_path = str(output_dir / "box_score.json")
+        with open(box_json_path, "w") as f:
+            f.write(renderer.render_json(game_box_score))
+        result.box_score_json_path = box_json_path
+
+        # Save box score text
+        box_txt_path = str(output_dir / "box_score.txt")
+        with open(box_txt_path, "w") as f:
+            f.write(renderer.render_text(game_box_score))
+        result.box_score_txt_path = box_txt_path
+
+        home_pts = game_box_score.home.total_pts
+        away_pts = game_box_score.away.total_pts
+        print(f"  Box score ({profile.value}): "
+              f"{game_box_score.home.team_name} {home_pts} - "
+              f"{game_box_score.away.team_name} {away_pts}")
+        print(f"  Players: {len(game_box_score.home.players)} home, "
+              f"{len(game_box_score.away.players)} away")
 
         # Save possessions
         poss_path = str(output_dir / "possessions.json")
@@ -236,7 +578,7 @@ class PipelineOrchestrator:
         # Stage 5: Generate shot charts (all + per-team + per-quarter)
         print("Stage 5: Generating shot charts...")
         chart_gen = ShotChartGenerator()
-        shots_df = metrics.shots_dataframe()
+        # Reuse shots_df from above (already computed at line 388)
 
         # 5a: All shots chart
         chart_path = str(output_dir / "shot_chart.png")
