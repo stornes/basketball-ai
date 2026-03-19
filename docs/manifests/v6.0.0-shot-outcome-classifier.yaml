@@ -1,0 +1,147 @@
+# HOOPS-VISION-2026: v6.0.0 — Shot Outcome Temporal Classifier
+# Purpose: Replace geometric made/missed heuristic with learned classifier
+# Parent: v5.0.0-assist-detection-architecture.yaml
+# Date: 2026-03-19
+# Status: PLANNED
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "6.0.0"
+  status: "PLANNED"
+  standard: "Temporal Shot Outcome Classification"
+
+overview:
+  problem: |
+    The current shot detector uses geometric heuristics (ball arc + basket proximity)
+    to classify made vs missed shots. This fails when:
+    - Basket detection is intermittent
+    - Ball is occluded near the rim
+    - Close-range shots (layups, put-backs) have no visible arc
+    Current accuracy: ~60% for made/missed classification.
+  solution: |
+    Train a temporal video classifier on Basketball-51 dataset (10,311 clips of
+    made/missed shots from real NBA games). The classifier watches a 2-4 second
+    clip around each detected shot event and outputs: made or missed.
+    Target accuracy: 90%+ (state of the art: 92.05% with ACA-Net).
+  principle: |
+    Detection model finds WHERE the shot happens (ball + basket position).
+    Temporal classifier determines WHAT happened (made or missed).
+    Two models, each doing what it's best at.
+
+dataset:
+  name: "Basketball-51"
+  source: "Kaggle (sarbagyashakya/basketball-51-dataset)"
+  size: "10,311 video clips from 51 NBA games"
+  clip_duration: "6 seconds each"
+  classes:
+    two_point_make: "2-point field goal made"
+    two_point_miss: "2-point field goal missed"
+    three_point_make: "3-point field goal made"
+    three_point_miss: "3-point field goal missed"
+    free_throw_make: "Free throw made"
+    free_throw_miss: "Free throw missed"
+  simplified_classes:
+    made: "Any shot that goes in (merge all *_make classes)"
+    missed: "Any shot that misses (merge all *_miss classes)"
+  format: "Video clips with folder-based labels"
+  resolution: "Variable (NBA broadcast quality)"
+
+architecture:
+  approach: "Video classification (not frame-by-frame)"
+  options:
+    option_1_simple:
+      name: "SlowFast + Linear Head"
+      description: |
+        Pre-trained SlowFast network (PyTorchVideo) with a binary classification
+        head. Fine-tune on Basketball-51 for made/missed.
+      pros: "Well-understood, good accuracy, reasonable speed"
+      cons: "Heavyweight model, ~200ms per clip"
+      expected_accuracy: "88-90%"
+
+    option_2_efficient:
+      name: "MobileNetV3 + LSTM"
+      description: |
+        Extract per-frame features with MobileNetV3, feed sequence to LSTM
+        for temporal classification. Lighter weight.
+      pros: "Fast, runs on phone/laptop"
+      cons: "Lower accuracy ceiling"
+      expected_accuracy: "82-86%"
+
+    option_3_best:
+      name: "TimeSformer or VideoMAE"
+      description: |
+        Transformer-based video understanding. Pre-trained on Kinetics,
+        fine-tuned on Basketball-51.
+      pros: "Highest accuracy potential, captures long-range temporal context"
+      cons: "Slowest, most GPU-hungry"
+      expected_accuracy: "90-93%"
+
+    recommended: "option_1_simple"
+    reason: |
+      SlowFast is the sweet spot. Pre-trained on Kinetics-400 which includes
+      sports actions. Fine-tuning on Basketball-51 is straightforward with
+      PyTorchVideo. 88-90% accuracy is a massive improvement over 60%.
+
+integration:
+  trigger: |
+    After the shot detector fires a ShotEvent, extract a 4-second clip
+    (2 seconds before, 2 seconds after the shot frame). Run the temporal
+    classifier on this clip to determine made/missed.
+  output: |
+    ShotOutcome.MADE or ShotOutcome.MISSED with confidence score.
+    Falls back to geometric heuristic if classifier confidence < 0.6.
+  pipeline_location: |
+    Between Stage 3 (detection/tracking) and Stage 4 (analytics).
+    New Stage 3.8: Shot Outcome Classification.
+  files:
+    new:
+      - "app/events/shot_classifier.py — temporal classifier wrapper"
+      - "scripts/train_shot_classifier.py — training script"
+      - "tests/unit/test_shot_classifier.py"
+    modified:
+      - "app/pipeline/run_analysis.py — add Stage 3.8"
+      - "app/events/shot_detector.py — pass clip to classifier"
+
+implementation:
+  phase_1_data_prep:
+    description: "Download and prepare Basketball-51 dataset"
+    tasks:
+      - "Download from Kaggle"
+      - "Explore class distribution and clip quality"
+      - "Merge into binary classification (made/missed)"
+      - "Create train/val/test splits (70/15/15)"
+    effort: "1 hour"
+
+  phase_2_train:
+    description: "Train SlowFast classifier"
+    tasks:
+      - "Install pytorchvideo"
+      - "Load pre-trained SlowFast R50"
+      - "Replace head with binary classifier"
+      - "Fine-tune on Basketball-51 (made vs missed)"
+      - "Evaluate on test set"
+    effort: "2-4 hours training on M1 Max"
+
+  phase_3_integrate:
+    description: "Wire classifier into pipeline"
+    tasks:
+      - "Extract clips around each ShotEvent"
+      - "Run classifier on each clip"
+      - "Override ShotOutcome with classifier result"
+      - "Fall back to geometric when confidence low"
+    effort: "2 hours"
+
+  phase_4_validate:
+    description: "Validate on real game data"
+    tasks:
+      - "Run pipeline on Notodden vs EB-85 game"
+      - "Compare classifier FGM count against API ground truth (59 made)"
+      - "Measure precision/recall for made shots"
+    effort: "1 hour"
+
+acceptance_criteria:
+  - "Classifier accuracy >= 85% on Basketball-51 test set"
+  - "Pipeline FGM count within 15% of API ground truth"
+  - "No regression in FGA detection"
+  - "Classifier adds < 5 seconds to total pipeline runtime"
+  - "Every classified shot has a confidence score"
