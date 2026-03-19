@@ -41,13 +41,19 @@ class PlayerBallDetector:
             self._ball_ids = {
                 k for k, v in class_map.items() if v.lower() in ("ball", "basketball")
             }
+            self._basket_ids = {
+                k for k, v in class_map.items() if v.lower() in ("basket", "hoop", "rim")
+            }
         else:
             self._class_filter = [self.PERSON_CLASS, self.BALL_CLASS]
             self._person_ids = {self.PERSON_CLASS}
             self._ball_ids = {self.BALL_CLASS}
+            self._basket_ids = set()  # No basket class in generic COCO
+
+    BASKET_CLASS = 1  # Normalized basket/hoop class ID
 
     def _normalize_class_id(self, raw_id: int) -> int:
-        """Map model class ID to canonical COCO IDs (person=0, ball=32).
+        """Map model class ID to canonical IDs (person=0, basket=1, ball=32).
 
         This ensures downstream code (tracker, shot detector) works
         unchanged regardless of whether the model uses COCO or custom IDs.
@@ -56,6 +62,8 @@ class PlayerBallDetector:
             return self.PERSON_CLASS
         if raw_id in self._ball_ids:
             return self.BALL_CLASS
+        if raw_id in self._basket_ids:
+            return self.BASKET_CLASS
         return raw_id
 
     def detect_batch(self, frames: list[np.ndarray], frame_indices: list[int], court_bbox=None) -> list[list[Detection]]:

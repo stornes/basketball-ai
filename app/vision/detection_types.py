@@ -47,6 +47,6 @@ class BoundingBox:
 class Detection:
     bbox: BoundingBox
     confidence: float
-    class_id: int  # 0=person, 32=sports ball (COCO)
+    class_id: int  # 0=person, 1=basket, 32=sports ball (normalized)
     class_name: str
     frame_idx: int
