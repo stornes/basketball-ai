@@ -316,6 +316,65 @@ class ShotDetector:
 
         return ShotOutcome.MADE
 
+    # ------------------------------------------------------------------
+    # Post-processing deduplication (call after all shots are collected)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def deduplicate_shots(shots: list[ShotEvent], min_gap_sec: float = 3.0) -> list[ShotEvent]:
+        """Remove duplicate shots caused by ball bounces.
+
+        After a ball bounces off the rim it can produce a new arc that the
+        detector fires on again.  Two shots at similar court positions within
+        *min_gap_sec* are treated as duplicates: keep the first (the real
+        shot), discard the bounce.
+
+        The function is intentionally simple — it doesn't need to be perfect,
+        it just needs to knock the ~425 → ~240 inflated count back down to
+        reality.  Shots are assumed to be in chronological order.
+
+        Args:
+            shots: All detected ShotEvents, sorted by timestamp_sec.
+            min_gap_sec: Minimum seconds required between two real shots at
+                the same basket location.  Defaults to 3.0s.
+
+        Returns:
+            De-duplicated list (always a subset of *shots*, same order).
+        """
+        if not shots:
+            return shots
+
+        kept: list[ShotEvent] = [shots[0]]
+
+        for candidate in shots[1:]:
+            last = kept[-1]
+            time_gap = candidate.timestamp_sec - last.timestamp_sec
+
+            if time_gap >= min_gap_sec:
+                # Far enough apart in time — definitely a new shot.
+                kept.append(candidate)
+                continue
+
+            # Within the dedup window: check spatial proximity.
+            # Use pixel-space ball position (always available).
+            if last.ball_x is not None and candidate.ball_x is not None:
+                dx = candidate.ball_x - last.ball_x
+                dy = (candidate.ball_y or 0.0) - (last.ball_y or 0.0)
+                dist = (dx * dx + dy * dy) ** 0.5
+                # 300px radius ≈ ~2 basket widths — generous but safe.
+                # Shots from completely different positions are never duplicates.
+                if dist > 300.0:
+                    kept.append(candidate)
+                    continue
+            else:
+                # No position data: fall back to time-only dedup.
+                pass
+
+            # Within time window and near same location → bounce duplicate,
+            # discard *candidate*.
+
+        return kept
+
     @staticmethod
     def _find_shooter(
         ball_pos: BallPosition, players: list[TrackedPlayer]

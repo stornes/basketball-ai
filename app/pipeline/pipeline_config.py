@@ -40,4 +40,4 @@ class PipelineConfig:
     vlm_backend: str = "gemini"  # "gemini", "anthropic", "grok", or "openai" for jersey number VLM
     box_score_profile: str = "youth"  # "professional" or "youth"
     scorekeeper_path: str | None = None  # path to scorekeeper.json for manual stats
-    use_possession_state_machine: bool = False  # Enable three-state possession model (v5.0.0)
+    use_possession_state_machine: bool = True  # Enable three-state possession model (v5.0.0)

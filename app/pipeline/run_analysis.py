@@ -18,6 +18,7 @@ from app.events.event_types import PossessionEvent, ShotEvent
 from app.events.three_point import ThreePointClassifier
 from app.reporting.box_score_renderer import BoxScoreRenderer
 from app.events.possession import PossessionTracker
+from app.events.possession_state import BallState, PossessionStateMachine
 from app.events.shot_detector import ShotDetector
 from app.ingest.video_loader import VideoLoader
 from app.pipeline.pipeline_config import PipelineConfig
@@ -98,6 +99,13 @@ class PipelineOrchestrator:
                 vlm_backend=self.config.vlm_backend,
             )
             rebound_detector = ReboundDetector(meta.fps)
+            # v5.0.0: Three-state possession state machine (gating turnover/steal)
+            psm: PossessionStateMachine | None = None
+            if self.config.use_possession_state_machine:
+                psm = PossessionStateMachine(
+                    fps=meta.fps,
+                    proximity_threshold_px=int(meta.width * 0.05),
+                )
             # v1.7.0: Observational ball-in-hands and pass detection
             from app.events.ball_possession import BallInHandsDetector
             from app.events.pass_detector import PassDetector
@@ -161,6 +169,20 @@ class PipelineOrchestrator:
                     ball = ball_dets[0] if ball_dets else None
                     basket_dets = [d for d in detections if d.class_id == 1]
                     basket = basket_dets[0] if basket_dets else None
+
+                    # v5.0.0: Update three-state PSM for ball-state context
+                    ball_pos_tuple = ball.bbox.center if ball is not None else None
+                    psm_players = [
+                        {"track_id": p.track_id, "team": p.team,
+                         "bbox_center": p.bbox.center}
+                        for p in players
+                    ]
+                    current_ball_state: BallState | None = None
+                    if psm is not None:
+                        current_ball_state = psm.update(
+                            frame_idx, ball_pos_tuple, psm_players
+                        )
+
                     shot = shot_detector.update(ball, players, frame_idx, basket_detection=basket)
                     if shot:
                         # Basket-relative court coordinates (v1.7.0)
@@ -182,7 +204,9 @@ class PipelineOrchestrator:
                         if poss:
                             result.possession_events.append(poss)
                         # Register missed shots for rebound detection
-                        rebound_detector.on_missed_shot(shot)
+                        # v5.0.0: gate on ball_state so LOOSE_BALL/UNKNOWN don't
+                        # spuriously trigger rebound windows
+                        rebound_detector.on_missed_shot(shot, ball_state=current_ball_state)
                     else:
                         poss = possession_tracker.update(ball, players, frame_idx)
                         if poss:
@@ -315,8 +339,73 @@ class PipelineOrchestrator:
             post_poss_tracker = PossessionTracker(
                 meta.fps, frame_width=meta.width, team_map=team_map,
             )
-            for ball, players, frame_idx in ball_player_frames:
-                post_poss_tracker.update(ball, players, frame_idx)
+
+            if self.config.use_possession_state_machine:
+                # v5.0.0: Run PSM in parallel to gate which possession events
+                # are real turnovers vs same-team passes or LOOSE_BALL recoveries.
+                post_psm = PossessionStateMachine(
+                    fps=meta.fps,
+                    proximity_threshold_px=int(meta.width * 0.05),
+                )
+                for ball, players, frame_idx in ball_player_frames:
+                    ball_pos_t = ball.bbox.center if ball is not None else None
+                    psm_pl = [
+                        {"track_id": p.track_id,
+                         "team": team_map.get(p.track_id, p.team),
+                         "bbox_center": p.bbox.center}
+                        for p in players
+                    ]
+                    post_psm.update(frame_idx, ball_pos_t, psm_pl)
+                    post_poss_tracker.update(ball, players, frame_idx)
+
+                # Filter possession events: a turnover is ONLY a cross-team
+                # PLAYER_CONTROL → PLAYER_CONTROL transition.  LOOSE_BALL
+                # recoveries and same-team changes are NOT turnovers.
+                psm_events = post_psm.possession_events  # state-change log
+                # Build a set of frames where we saw a cross-team flip
+                # (PLAYER_CONTROL(A) → PLAYER_CONTROL(B)) from the PSM log.
+                cross_team_frames: set[int] = set()
+                prev_controlling_team: str | None = None
+                prev_state: BallState = BallState.UNKNOWN
+                for ev in psm_events:
+                    if (
+                        ev["to_state"] == BallState.PLAYER_CONTROL
+                        and ev["from_state"] == BallState.PLAYER_CONTROL
+                        and prev_controlling_team is not None
+                    ):
+                        # Look up the team for the new controlling player
+                        new_team: str | None = None
+                        for p_entry in psm_pl:  # last frame's players — best available
+                            if p_entry["track_id"] == ev["controlling_player"]:
+                                new_team = p_entry["team"]
+                                break
+                        if new_team and new_team != prev_controlling_team:
+                            cross_team_frames.add(ev["frame"])
+                    if ev["to_state"] == BallState.PLAYER_CONTROL:
+                        # Resolve team for this controlling player
+                        _team: str | None = None
+                        for p_entry in psm_pl:
+                            if p_entry["track_id"] == ev["controlling_player"]:
+                                _team = p_entry["team"]
+                                break
+                        prev_controlling_team = _team
+                    prev_state = ev["to_state"]
+
+                # Relabel possession events: non-cross-team "turnovers" → "pass"
+                # so the steal detector doesn't count them as steals either.
+                for poss_ev in post_poss_tracker.events:
+                    if poss_ev.result == "turnover" and poss_ev.end_frame not in cross_team_frames:
+                        poss_ev.result = "pass"
+
+                n_real_turnovers = sum(
+                    1 for pe in post_poss_tracker.events if pe.result == "turnover"
+                )
+                print(f"  PSM gating: {n_real_turnovers} real turnovers "
+                      f"(cross-team PLAYER_CONTROL flips) identified")
+            else:
+                for ball, players, frame_idx in ball_player_frames:
+                    post_poss_tracker.update(ball, players, frame_idx)
+
             # Replace the original (broken) possession events
             result.possession_events = post_poss_tracker.events
             print(f"  Post-processing produced {len(result.possession_events)} possessions "
@@ -525,13 +614,26 @@ class PipelineOrchestrator:
                 )
                 print(f"  Detected {len(boundaries)} boundaries → "
                       f"{len(quarter_ranges)} quarters")
-                # Filter out warmup shots (before game start)
-                pre_game = [s for s in result.shot_events
-                            if s.timestamp_sec < game_start]
-                if pre_game:
-                    result.shot_events = [s for s in result.shot_events
-                                          if s.timestamp_sec >= game_start]
-                    print(f"  Excluded {len(pre_game)} warmup shots")
+
+            # Filter out warmup shots (before game start).
+            # Runs unconditionally when game_start is set — even if quarter
+            # boundary detection found nothing, pre-game shots are still noise.
+            pre_game = [s for s in result.shot_events
+                        if s.timestamp_sec < game_start]
+            if pre_game:
+                result.shot_events = [s for s in result.shot_events
+                                      if s.timestamp_sec >= game_start]
+                print(f"  Excluded {len(pre_game)} warmup shots")
+
+        # Problem 1 fix: deduplicate bounce re-triggers AFTER warmup filter.
+        # A ball bouncing off the rim creates a new arc; deduplicate_shots keeps
+        # only the first shot within a 3-second window at the same location.
+        before_dedup = len(result.shot_events)
+        result.shot_events = ShotDetector.deduplicate_shots(result.shot_events)
+        removed = before_dedup - len(result.shot_events)
+        if removed:
+            print(f"  Shot deduplication: removed {removed} bounce duplicates "
+                  f"({before_dedup} → {len(result.shot_events)} shots)")
 
         # Stage 4: Compute analytics
         print("Stage 4: Computing analytics...")

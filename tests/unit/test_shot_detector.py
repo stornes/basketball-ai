@@ -2,9 +2,32 @@
 
 import pytest
 
-from app.events.event_types import ShotOutcome
+from app.events.event_types import ShotEvent, ShotOutcome
 from app.events.shot_detector import BallPosition, ShotDetector
 from app.vision.detection_types import BoundingBox, Detection
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _make_shot(
+    timestamp_sec: float,
+    ball_x: float = 960.0,
+    ball_y: float = 400.0,
+) -> ShotEvent:
+    """Minimal ShotEvent for deduplication tests."""
+    frame = int(timestamp_sec * 30)
+    return ShotEvent(
+        frame_idx=frame,
+        timestamp_sec=timestamp_sec,
+        shooter_track_id=1,
+        court_position=None,
+        outcome=ShotOutcome.MISSED,
+        clip_start_frame=max(0, frame - 45),
+        clip_end_frame=frame + 45,
+        ball_x=ball_x,
+        ball_y=ball_y,
+    )
 
 
 def _make_ball_detection(x, y, frame_idx):
@@ -246,3 +269,87 @@ class TestCreateShotEvent:
         ]
         event = det._create_shot_event(positions, [], frame_idx=9, apex_y=400, ball_loss=False)
         assert event.outcome == ShotOutcome.MADE
+
+
+# ── Deduplication tests ───────────────────────────────────────────────────────
+
+
+class TestDeduplicateShots:
+    """Tests for ShotDetector.deduplicate_shots (Problem 1 fix)."""
+
+    def test_empty_list_returns_empty(self):
+        """Empty input returns empty output."""
+        assert ShotDetector.deduplicate_shots([]) == []
+
+    def test_single_shot_unchanged(self):
+        """Single shot is always kept."""
+        shots = [_make_shot(5.0)]
+        result = ShotDetector.deduplicate_shots(shots)
+        assert len(result) == 1
+        assert result[0] is shots[0]
+
+    def test_two_shots_close_in_time_deduped(self):
+        """Two shots 1s apart at same location: only first is kept (bounce dedup)."""
+        shots = [
+            _make_shot(10.0, ball_x=960.0),
+            _make_shot(11.0, ball_x=970.0),  # 1s later, same basket area
+        ]
+        result = ShotDetector.deduplicate_shots(shots, min_gap_sec=3.0)
+        assert len(result) == 1
+        assert result[0].timestamp_sec == 10.0
+
+    def test_two_shots_far_apart_in_time_both_kept(self):
+        """Two shots 5s apart: both are real shots, both kept."""
+        shots = [
+            _make_shot(10.0, ball_x=960.0),
+            _make_shot(15.0, ball_x=960.0),  # 5s later > min_gap_sec=3
+        ]
+        result = ShotDetector.deduplicate_shots(shots, min_gap_sec=3.0)
+        assert len(result) == 2
+
+    def test_two_shots_near_time_different_location_both_kept(self):
+        """Two shots within 3s but at very different court positions: both kept."""
+        shots = [
+            _make_shot(10.0, ball_x=200.0),   # left basket
+            _make_shot(11.5, ball_x=1700.0),  # right basket — >300px apart
+        ]
+        result = ShotDetector.deduplicate_shots(shots, min_gap_sec=3.0)
+        assert len(result) == 2
+
+    def test_bounce_sequence_three_shots_one_kept(self):
+        """Three bounce triggers within 3s: only the first is kept."""
+        shots = [
+            _make_shot(10.0, ball_x=960.0),
+            _make_shot(10.8, ball_x=950.0),   # first bounce
+            _make_shot(11.5, ball_x=955.0),   # second bounce
+        ]
+        result = ShotDetector.deduplicate_shots(shots, min_gap_sec=3.0)
+        assert len(result) == 1
+        assert result[0].timestamp_sec == 10.0
+
+    def test_real_game_sequence_preserved(self):
+        """Realistic game: shots every ~15s should all be kept."""
+        timestamps = [15.0, 31.0, 47.0, 63.0, 80.0]
+        shots = [_make_shot(t) for t in timestamps]
+        result = ShotDetector.deduplicate_shots(shots, min_gap_sec=3.0)
+        assert len(result) == len(timestamps)
+
+    def test_keeps_first_not_last(self):
+        """Dedup always keeps the first shot, not the bounce."""
+        first = _make_shot(20.0, ball_x=960.0)
+        bounce = _make_shot(21.0, ball_x=965.0)
+        result = ShotDetector.deduplicate_shots([first, bounce], min_gap_sec=3.0)
+        assert result[0] is first
+
+    def test_no_ball_position_falls_back_to_time_only(self):
+        """When ball_x is None, time-only dedup applies."""
+        s1 = _make_shot(10.0)
+        s2 = _make_shot(11.0)
+        s1.ball_x = None
+        s1.ball_y = None
+        s2.ball_x = None
+        s2.ball_y = None
+        result = ShotDetector.deduplicate_shots([s1, s2], min_gap_sec=3.0)
+        # Within time window and no position data → dedup fires, keep first
+        assert len(result) == 1
+        assert result[0] is s1
