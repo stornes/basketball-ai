@@ -41,3 +41,4 @@ class PipelineConfig:
     box_score_profile: str = "youth"  # "professional" or "youth"
     scorekeeper_path: str | None = None  # path to scorekeeper.json for manual stats
     use_possession_state_machine: bool = True  # Enable three-state possession model (v5.0.0)
+    tracker_type: str = "deepsort"  # "iou" or "deepsort"

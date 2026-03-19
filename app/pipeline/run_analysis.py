@@ -26,6 +26,7 @@ from app.reporting.clips import ClipGenerator
 from app.reporting.coach_agent import run_coaching_agent
 from app.tracking.jersey_number import JerseyNumberReader, sherlock_resolve
 from app.tracking.team_classifier import TeamClassifier
+from app.tracking.deepsort_tracker import DeepSortTracker
 from app.tracking.tracker import PlayerTracker, TrackedPlayer
 from app.vision.court_mapper import CourtMapper
 from app.vision.detector import PlayerBallDetector
@@ -86,7 +87,12 @@ class PipelineOrchestrator:
             # Stage 2: Initialize components
             print("Stage 2: Initializing detectors...")
             detector = PlayerBallDetector(self.config)
-            tracker = PlayerTracker()
+            if self.config.tracker_type == "deepsort":
+                tracker = DeepSortTracker()
+                iou_tracker = None
+            else:
+                tracker = None
+                iou_tracker = PlayerTracker()
             court_mapper = CourtMapper()
             shot_detector = ShotDetector(
                 meta.height, meta.fps,
@@ -145,7 +151,10 @@ class PipelineOrchestrator:
                     detections = batch_dets[i]
 
                     # Track players
-                    players = tracker.update(detections, frame_idx)
+                    if self.config.tracker_type == "deepsort":
+                        players = tracker.update(detections, frame)
+                    else:
+                        players = iou_tracker.update(detections, frame_idx)
 
                     # Apply court mapping to player positions
                     if court_calibrated:
