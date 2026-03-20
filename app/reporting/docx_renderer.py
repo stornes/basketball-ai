@@ -79,13 +79,24 @@ def _box_score_tables(game: GameBoxScore) -> list[dict]:
                 str(p.deflections),
             ])
 
-            # Collect impact line for text block below table
-            ast_to = f"{p.ast_to_ratio:.1f}" if p.to > 0 else f"{p.ast:.0f}.0"
-            impact_lines.append(
-                f"#{jersey} {name}: {p.impact_line}  (AST/TO: {ast_to}, DAI: {p.defensive_activity_index}, EFF: {p.effort_plays})"
-            )
+            # Collect impact line only if player has non-scoring stats
+            has_tracking = p.reb > 0 or p.ast > 0 or p.stl > 0 or p.blk > 0 or p.to > 0
+            if has_tracking:
+                ast_to = f"{p.ast_to_ratio:.1f}" if p.to > 0 else f"{p.ast:.0f}.0"
+                impact_lines.append(
+                    f"#{jersey} {name}: {p.impact_line}  (AST/TO: {ast_to}, DAI: {p.defensive_activity_index}, EFF: {p.effort_plays})"
+                )
 
-        # Totals row
+        # Totals row: sum only attributed player stats (not unattributed team stats).
+        # Unattributed stats go in the note below, not in the table.
+        # A table where players sum to 0 but totals show 20 is dishonest.
+        p_reb = sum(p.reb for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
+        p_ast = sum(p.ast for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
+        p_to = sum(p.to for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
+        p_stl = sum(p.stl for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
+        p_blk = sum(p.blk for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
+        p_pf = sum(p.pf for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
+        p_defl = sum(p.deflections for p in team.players if not (p.jersey_number == 0 or (p.player_name and "unattributed" in p.player_name.lower())))
         t = team
         rows.append([
             "",
@@ -94,21 +105,23 @@ def _box_score_tables(game: GameBoxScore) -> list[dict]:
             f"{t.total_fg}-{t.total_fga}",
             f"{t.total_ft}-{t.total_fta}",
             str(t.total_pts),
-            str(t.total_reb),
-            str(t.total_ast),
-            str(t.total_to),
-            str(t.total_stl),
-            str(t.total_blk),
-            str(t.total_pf),
-            str(t.total_deflections),
+            str(p_reb),
+            str(p_ast),
+            str(p_to),
+            str(p_stl),
+            str(p_blk),
+            str(p_pf),
+            str(p_defl),
         ])
 
         # Build body blocks: table, then impact lines as bullets, then unattributed note
         body_blocks: list[dict] = [
             {"type": "table", "headers": headers, "rows": rows},
-            {"type": "content", "text": "**Impact Lines** (PTS / REB / AST / STL / BLK / TO)"},
-            {"type": "bullets", "items": impact_lines},
         ]
+        # Only show impact lines if at least one player has tracking stats
+        if impact_lines:
+            body_blocks.append({"type": "content", "text": "**Impact Lines** (PTS / REB / AST / STL / BLK / TO)"})
+            body_blocks.append({"type": "bullets", "items": impact_lines})
 
         # Note unattributed stats if they exist
         unattr = []
