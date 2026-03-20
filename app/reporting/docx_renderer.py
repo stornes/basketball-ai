@@ -103,8 +103,12 @@ def _box_score_tables(game: GameBoxScore) -> list[dict]:
             str(t.total_deflections),
         ])
 
-        # Impact lines as text below the table
-        impact_text = "**Impact Lines** (PTS / REB / AST / STL / BLK / TO)\n\n" + "\n".join(impact_lines)
+        # Build body blocks: table, then impact lines as bullets, then unattributed note
+        body_blocks: list[dict] = [
+            {"type": "table", "headers": headers, "rows": rows},
+            {"type": "content", "text": "**Impact Lines** (PTS / REB / AST / STL / BLK / TO)"},
+            {"type": "bullets", "items": impact_lines},
+        ]
 
         # Note unattributed stats if they exist
         unattr = []
@@ -113,17 +117,12 @@ def _box_score_tables(game: GameBoxScore) -> list[dict]:
         if t.unattributed_orb + t.unattributed_drb: unattr.append(f"{t.unattributed_orb + t.unattributed_drb} REB")
         if t.unattributed_to: unattr.append(f"{t.unattributed_to} TO")
         if unattr:
-            impact_text += f"\n\n*Team totals include {', '.join(unattr)} detected but not attributed to individual players.*"
+            body_blocks.append({"type": "content", "text": f"*Team totals include {', '.join(unattr)} detected but not attributed to individual players.*"})
 
-        # Use body array format so table renders BEFORE content.
-        # Legacy format renders content first, then table (wrong order).
         subsections.append({
             "heading": team.team_name,
             "level": 2,
-            "body": [
-                {"type": "table", "headers": headers, "rows": rows},
-                {"type": "content", "text": impact_text},
-            ],
+            "body": body_blocks,
         })
 
     return subsections

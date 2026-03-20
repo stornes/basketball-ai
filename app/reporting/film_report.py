@@ -207,6 +207,14 @@ class FilmReportGenerator:
         report.quarter_narratives = self._generate_quarter_narratives(game, advanced)
         report.game_summary = self._generate_game_summary(game, advanced, report)
 
+        # Clean up LLM output: strip markdown headings that aren't meant for the document
+        import re
+        report.game_summary = re.sub(
+            r'###\s*Paragraph\s*\d+[^:\n]*:\s*[^\n]*\n?',
+            '',
+            report.game_summary,
+        ).strip()
+
         return report
 
     # ═══════════════════════════════════════════════════════════════════
