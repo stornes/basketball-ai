@@ -268,6 +268,15 @@ def film_report_to_docx_json(report: FilmReport) -> dict[str, Any]:
             "subsections": ff_subsections,
         })
 
+    # ── Section 5b: Key Stat Drivers ──────────────────────────────
+    if r.key_stat_drivers:
+        sections.append({
+            "heading": "Key Stat Drivers",
+            "level": 1,
+            "content": r.key_stat_drivers,
+            "pageBreakBefore": True,
+        })
+
     # ── Section 6: Individual Metrics ────────────────────────────
     if adv:
         any_fga = any(
