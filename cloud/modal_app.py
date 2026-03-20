@@ -37,6 +37,9 @@ image = (
         "opencv-python-headless>=4.8.0",
         "numpy>=1.24.0",
         "scipy>=1.11.0",
+        "pandas>=2.0.0",
+        "matplotlib>=3.7.0",
+        "scikit-learn>=1.3.0",
         "deep-sort-realtime>=1.3.0",
         "supervision>=0.27.0",
         "anthropic>=0.40.0",
@@ -44,11 +47,15 @@ image = (
         "python-dotenv>=1.0.0",
         "langchain-google-genai>=2.0.0",
         "langchain-core>=0.3.0",
+        "langgraph>=0.1.0",
         "click>=8.0.0",
+        "pyyaml>=6.0",
+        "easyocr>=1.7.0",
+        "imageio-ffmpeg>=0.4.0",
     )
-    .copy_local_dir("app", "/app/app")
-    .copy_local_dir("scripts", "/app/scripts")
-    .copy_local_file("main.py", "/app/main.py")
+    .add_local_dir("app", remote_path="/app/app")
+    .add_local_dir("scripts", remote_path="/app/scripts")
+    .add_local_file("main.py", remote_path="/app/main.py")
 )
 
 
@@ -86,7 +93,7 @@ def setup_models(
     image=image,
     cpu=4,
     memory=8192,
-    timeout=600,
+    timeout=1800,  # 30 min for large 4K videos
 )
 def transcode(game_id: str) -> str:
     """Transcode 4K video to 1080p for faster processing."""
@@ -129,7 +136,7 @@ def transcode(game_id: str) -> str:
     gpu="A10G",
     cpu=4,
     memory=32768,
-    timeout=1800,
+    timeout=3600,  # 1 hour for full pipeline including VLM/Sherlock
     secrets=[
         modal.Secret.from_name("anthropic-key", required_keys=["ANTHROPIC_API_KEY"]),
         modal.Secret.from_name("xai-key", required_keys=["XAI_API_KEY"]),
@@ -150,11 +157,30 @@ def analyse(
     from app.pipeline.pipeline_config import PipelineConfig
     from app.pipeline.run_analysis import PipelineOrchestrator
 
-    video_path = f"/videos/{game_id}/1080p.mp4"
+    # Debug: list what's on the video volume
+    print(f"Listing /videos/...")
+    for item in os.listdir("/videos"):
+        print(f"  /videos/{item}")
+        subpath = f"/videos/{item}"
+        if os.path.isdir(subpath):
+            for sub in os.listdir(subpath):
+                size_mb = os.path.getsize(f"{subpath}/{sub}") / 1024 / 1024
+                print(f"    {sub} ({size_mb:.0f} MB)")
+
+    # Prefer original (guaranteed complete). 1080p may be corrupt from failed transcode.
+    video_path = f"/videos/{game_id}/original.mp4"
     if not os.path.exists(video_path):
-        video_path = f"/videos/{game_id}/original.mp4"
+        video_path = f"/videos/{game_id}/1080p.mp4"
     if not os.path.exists(video_path):
-        raise FileNotFoundError(f"No video found for game {game_id}")
+        # Try any mp4 in the game directory
+        game_dir = f"/videos/{game_id}"
+        if os.path.isdir(game_dir):
+            mp4s = [f for f in os.listdir(game_dir) if f.endswith(".mp4") or f.endswith(".MP4")]
+            if mp4s:
+                video_path = f"{game_dir}/{mp4s[0]}"
+                print(f"Using fallback video: {video_path}")
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"No video found for game {game_id}. Checked /videos/{game_id}/")
 
     output_dir = f"/outputs/{game_id}"
     os.makedirs(output_dir, exist_ok=True)
@@ -176,7 +202,7 @@ def analyse(
         roster_path=roster_path,
         game_start_sec=game_start,
         quarter_duration_sec=quarter_duration,
-        vlm_backend="anthropic",
+        vlm_backend="skip",  # Skip VLM in cloud to avoid 60+ min Sherlock timeout
         tracker_type="iou",  # IoU is faster and sufficient with track merger
         use_possession_state_machine=True,
     )
@@ -276,21 +302,28 @@ def full_pipeline(
     quarter_duration: int = 600,
     sample_rate: int = 6,
     llm_backend: str = "grok",
+    skip_upload: bool = False,
+    skip_transcode: bool = False,
 ):
     """Upload video, run pipeline, compile report, download results.
 
     Usage:
+        # Full pipeline
         modal run cloud/modal_app.py::full_pipeline \
             --video game.mp4 --roster roster.json --match-id 8254973
+
+        # Skip upload (video already on volume)
+        modal run cloud/modal_app.py::full_pipeline \
+            --video game.mp4 --roster roster.json --match-id 8254973 \
+            --skip-upload --skip-transcode
     """
     import json
-    import subprocess
     from pathlib import Path
 
     video_path = Path(video)
     roster_path = Path(roster)
 
-    if not video_path.exists():
+    if not skip_upload and not video_path.exists():
         raise FileNotFoundError(f"Video not found: {video}")
     if not roster_path.exists():
         raise FileNotFoundError(f"Roster not found: {roster}")
@@ -302,24 +335,29 @@ def full_pipeline(
     with open(roster_path) as f:
         roster_data = json.load(f)
 
-    # Step 1: Upload video
     print(f"\n{'='*60}")
     print(f"HOOPSVISION CLOUD PIPELINE")
     print(f"{'='*60}")
     print(f"\nGame: {game_id}")
-    print(f"Video: {video_path.name} ({video_path.stat().st_size / 1024 / 1024 / 1024:.1f} GB)")
 
-    print(f"\n[1/4] Uploading video...")
-    subprocess.run([
-        "python", "-m", "modal", "volume", "put",
-        "hoopsvision-videos", str(video_path), f"/{game_id}/original.mp4",
-    ], check=True)
-    print(f"  Uploaded.")
+    # Step 1: Upload video
+    if skip_upload:
+        print(f"\n[1/4] Skipping upload (video already on volume)")
+    else:
+        size_gb = video_path.stat().st_size / 1024 / 1024 / 1024
+        print(f"\n[1/4] Uploading video ({size_gb:.1f} GB)...")
+        vol = modal.Volume.from_name("hoopsvision-videos")
+        with vol.batch_upload() as batch:
+            batch.put_file(video_path, f"/{game_id}/original.mp4")
+        print(f"  Uploaded.")
 
     # Step 2: Transcode
-    print(f"\n[2/4] Transcoding to 1080p...")
-    transcode_result = transcode.remote(game_id)
-    print(f"  Done: {transcode_result}")
+    if skip_transcode:
+        print(f"\n[2/4] Skipping transcode (using original video)")
+    else:
+        print(f"\n[2/4] Transcoding to 1080p...")
+        transcode_result = transcode.remote(game_id)
+        print(f"  Done: {transcode_result}")
 
     # Step 3: Analyse
     print(f"\n[3/4] Analysing on cloud GPU...")
@@ -353,10 +391,16 @@ def full_pipeline(
     local_output = Path(f"data/outputs/{game_id}-cloud")
     local_output.mkdir(parents=True, exist_ok=True)
 
-    subprocess.run([
-        "python", "-m", "modal", "volume", "get",
-        "hoopsvision-outputs", f"/{game_id}/", str(local_output),
-    ], check=True)
+    out_vol = modal.Volume.from_name("hoopsvision-outputs")
+    try:
+        for entry in out_vol.iterdir(f"/{game_id}"):
+            remote_path = entry.path
+            local_path = local_output / Path(remote_path).name
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            out_vol.read_file_into_fileobj(remote_path, open(local_path, "wb"))
+            print(f"  Downloaded: {local_path.name}")
+    except Exception as e:
+        print(f"  Download via SDK failed ({e}), try: modal volume get hoopsvision-outputs /{game_id}/ {local_output}")
 
-    print(f"\nResults downloaded to: {local_output}")
+    print(f"\nResults saved to: {local_output}")
     print(f"Done.")

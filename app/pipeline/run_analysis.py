@@ -102,7 +102,7 @@ class PipelineOrchestrator:
             possession_tracker = PossessionTracker(meta.fps, frame_width=meta.width)
             team_classifier = TeamClassifier() if self.config.enable_team_classification else None
             jersey_reader = JerseyNumberReader(
-                vlm_backend=self.config.vlm_backend,
+                vlm_backend=self.config.vlm_backend if self.config.vlm_backend != "skip" else "anthropic",
             )
             rebound_detector = ReboundDetector(meta.fps)
             # v5.0.0: Three-state possession state machine (gating turnover/steal)
@@ -481,145 +481,50 @@ class PipelineOrchestrator:
               f"({pass_assists} observed, {prox_assists} proximity), {steal_count} steals")
 
         # Stage 3.6: Resolve jersey numbers via VLM
-        print("Stage 3.6: Resolving jersey numbers via VLM...")
-        print(f"  Collected crops from {jersey_reader.tracks_with_crops} tracks")
-        # Resolve ALL event track IDs: shooters + assisters + rebounders + stealers
-        shooter_ids = {
-            int(s.shooter_track_id)
-            for s in result.shot_events
-            if s.shooter_track_id is not None
-        }
-        assister_ids = {
-            int(a.assister_track_id)
-            for a in assist_detector.events
-        }
-        rebounder_ids = {
-            int(r.rebounder_track_id)
-            for r in rebound_detector.events
-        }
-        stealer_ids = {
-            int(s.stealer_track_id)
-            for s in steal_events
-        }
-        all_event_ids = shooter_ids | assister_ids | rebounder_ids | stealer_ids
-        print(f"  Resolving {len(all_event_ids)} event tracks "
-              f"({len(shooter_ids)} shooters, {len(assister_ids)} assisters, "
-              f"{len(rebounder_ids)} rebounders, {len(stealer_ids)} stealers)...")
-        jersey_map = jersey_reader.resolve(track_ids=all_event_ids)
-        print(f"  VLM: {jersey_reader.total_readings} readings from "
-              f"{jersey_reader.tracks_with_readings} tracks → "
-              f"{len(jersey_map)} resolved jersey numbers")
-        for shot in result.shot_events:
-            if shot.shooter_track_id is not None:
-                shot.jersey_number = jersey_map.get(shot.shooter_track_id)
-
-        # Save player descriptions
-        descriptions = jersey_reader.player_descriptions
-        if descriptions:
-            desc_path = str(output_dir / "player_descriptions.json")
-            import json as _json
-            desc_data = {
-                str(tid): {
-                    "track_id": d.track_id,
-                    "jersey_number": d.jersey_number,
-                    "team_color": d.team_color,
-                    "description": d.description,
-                }
-                for tid, d in descriptions.items()
+        skip_vlm = self.config.vlm_backend == "skip"
+        if skip_vlm:
+            print("Stage 3.6: Skipping VLM jersey resolution (vlm_backend=skip)")
+            jersey_map = {}
+            descriptions = {}
+            print("Stage 3.6b: Skipping Sherlock deduction (vlm_backend=skip)")
+        else:
+            print("Stage 3.6: Resolving jersey numbers via VLM...")
+            print(f"  Collected crops from {jersey_reader.tracks_with_crops} tracks")
+            # Resolve ALL event track IDs: shooters + assisters + rebounders + stealers
+            shooter_ids = {
+                int(s.shooter_track_id)
+                for s in result.shot_events
+                if s.shooter_track_id is not None
             }
-            with open(desc_path, "w") as f:
-                _json.dump(desc_data, f, indent=2)
-            print(f"  Saved {len(descriptions)} player descriptions")
+            assister_ids = {
+                int(a.assister_track_id)
+                for a in assist_detector.events
+            }
+            rebounder_ids = {
+                int(r.rebounder_track_id)
+                for r in rebound_detector.events
+            }
+            stealer_ids = {
+                int(s.stealer_track_id)
+                for s in steal_events
+            }
+            all_event_ids = shooter_ids | assister_ids | rebounder_ids | stealer_ids
+            print(f"  Resolving {len(all_event_ids)} event tracks "
+                  f"({len(shooter_ids)} shooters, {len(assister_ids)} assisters, "
+                  f"{len(rebounder_ids)} rebounders, {len(stealer_ids)} stealers)...")
+            jersey_map = jersey_reader.resolve(track_ids=all_event_ids)
+            print(f"  VLM: {jersey_reader.total_readings} readings from "
+                  f"{jersey_reader.tracks_with_readings} tracks → "
+                  f"{len(jersey_map)} resolved jersey numbers")
+            for shot in result.shot_events:
+                if shot.shooter_track_id is not None:
+                    shot.jersey_number = jersey_map.get(shot.shooter_track_id)
 
-        # Stage 3.6b: Sherlock deductive pass for ALL unresolved event tracks
-        # Build a combined list of unresolved tracks from shots + assists + rebounds + steals
-        # Sherlock expects objects with .shooter_track_id and .team attributes
-        unresolved_shots = [
-            s for s in result.shot_events
-            if s.shooter_track_id is not None
-            and s.jersey_number is None
-        ]
-        # Add assist/rebound/steal tracks as pseudo-shot objects for Sherlock
-        from types import SimpleNamespace
-        unresolved_event_tracks = list(unresolved_shots)
-        for a in assist_detector.events:
-            if int(a.assister_track_id) not in jersey_map:
-                unresolved_event_tracks.append(SimpleNamespace(
-                    shooter_track_id=a.assister_track_id,
-                    team=a.assister_team,
-                ))
-        for r in rebound_detector.events:
-            if int(r.rebounder_track_id) not in jersey_map:
-                unresolved_event_tracks.append(SimpleNamespace(
-                    shooter_track_id=r.rebounder_track_id,
-                    team=r.rebounder_team,
-                ))
-        for s in steal_events:
-            if int(s.stealer_track_id) not in jersey_map:
-                unresolved_event_tracks.append(SimpleNamespace(
-                    shooter_track_id=s.stealer_track_id,
-                    team=s.stealer_team,
-                ))
-        if roster and unresolved_event_tracks:
-            # Iterative Sherlock: each pass builds on previous resolutions.
-            # New knowledge from pass N narrows the elimination space for pass N+1.
-            MAX_SHERLOCK_PASSES = 3
-            total_sherlock_resolved = 0
-            remaining_tracks = list(unresolved_event_tracks)
-
-            roster_home_dict = {"name": roster.home_team_name, "players": [
-                {"number": p.number, "name": p.name} for p in roster.home_players
-            ]}
-            roster_away_dict = {"name": roster.away_team_name, "players": [
-                {"number": p.number, "name": p.name} for p in roster.away_players
-            ]}
-
-            for sherlock_pass in range(1, MAX_SHERLOCK_PASSES + 1):
-                if not remaining_tracks:
-                    break
-                print(f"Stage 3.6b: Sherlock pass {sherlock_pass}/{MAX_SHERLOCK_PASSES} "
-                      f"on {len(remaining_tracks)} unresolved tracks...")
-                sherlock_map, sherlock_desc = sherlock_resolve(
-                    video_path=video_path,
-                    all_tracks=all_tracks,
-                    fps=meta.fps,
-                    roster_home=roster_home_dict,
-                    roster_away=roster_away_dict,
-                    descriptions=descriptions,
-                    jersey_map=jersey_map,
-                    unresolved_shots=remaining_tracks,
-                    vlm_backend=self.config.vlm_backend,
-                )
-
-                if not sherlock_map:
-                    print(f"  Pass {sherlock_pass}: no new resolutions, stopping.")
-                    break
-
-                # Merge results into main maps
-                jersey_map.update(sherlock_map)
-                total_sherlock_resolved += len(sherlock_map)
-                if sherlock_desc:
-                    for tid, d in sherlock_desc.items():
-                        descriptions[tid] = d
-
-                # Update shot jersey numbers
-                for shot in result.shot_events:
-                    if shot.shooter_track_id is not None and shot.jersey_number is None:
-                        shot.jersey_number = sherlock_map.get(int(shot.shooter_track_id))
-
-                # Remove resolved tracks for next pass
-                resolved_tids = set(sherlock_map.keys())
-                remaining_tracks = [
-                    t for t in remaining_tracks
-                    if int(t.shooter_track_id) not in resolved_tids
-                ]
-                print(f"  Pass {sherlock_pass}: resolved {len(sherlock_map)}, "
-                      f"{len(remaining_tracks)} still unresolved.")
-
-            print(f"  Sherlock total: {total_sherlock_resolved} tracks resolved "
-                  f"across {sherlock_pass} pass(es).")
-            # Update descriptions file with all accumulated knowledge
-            if total_sherlock_resolved > 0:
+            # Save player descriptions
+            descriptions = jersey_reader.player_descriptions
+            if descriptions:
+                desc_path = str(output_dir / "player_descriptions.json")
+                import json as _json
                 desc_data = {
                     str(tid): {
                         "track_id": d.track_id,
@@ -629,8 +534,110 @@ class PipelineOrchestrator:
                     }
                     for tid, d in descriptions.items()
                 }
-                with open(str(output_dir / "player_descriptions.json"), "w") as f:
-                    json.dump(desc_data, f, indent=2)
+                with open(desc_path, "w") as f:
+                    _json.dump(desc_data, f, indent=2)
+                print(f"  Saved {len(descriptions)} player descriptions")
+
+            # Stage 3.6b: Sherlock deductive pass for ALL unresolved event tracks
+            # Build a combined list of unresolved tracks from shots + assists + rebounds + steals
+            # Sherlock expects objects with .shooter_track_id and .team attributes
+            unresolved_shots = [
+                s for s in result.shot_events
+                if s.shooter_track_id is not None
+                and s.jersey_number is None
+            ]
+            # Add assist/rebound/steal tracks as pseudo-shot objects for Sherlock
+            from types import SimpleNamespace
+            unresolved_event_tracks = list(unresolved_shots)
+            for a in assist_detector.events:
+                if int(a.assister_track_id) not in jersey_map:
+                    unresolved_event_tracks.append(SimpleNamespace(
+                        shooter_track_id=a.assister_track_id,
+                        team=a.assister_team,
+                    ))
+            for r in rebound_detector.events:
+                if int(r.rebounder_track_id) not in jersey_map:
+                    unresolved_event_tracks.append(SimpleNamespace(
+                        shooter_track_id=r.rebounder_track_id,
+                        team=r.rebounder_team,
+                    ))
+            for s in steal_events:
+                if int(s.stealer_track_id) not in jersey_map:
+                    unresolved_event_tracks.append(SimpleNamespace(
+                        shooter_track_id=s.stealer_track_id,
+                        team=s.stealer_team,
+                    ))
+            if roster and unresolved_event_tracks:
+                # Iterative Sherlock: each pass builds on previous resolutions.
+                # New knowledge from pass N narrows the elimination space for pass N+1.
+                MAX_SHERLOCK_PASSES = 3
+                total_sherlock_resolved = 0
+                remaining_tracks = list(unresolved_event_tracks)
+
+                roster_home_dict = {"name": roster.home_team_name, "players": [
+                    {"number": p.number, "name": p.name} for p in roster.home_players
+                ]}
+                roster_away_dict = {"name": roster.away_team_name, "players": [
+                    {"number": p.number, "name": p.name} for p in roster.away_players
+                ]}
+
+                for sherlock_pass in range(1, MAX_SHERLOCK_PASSES + 1):
+                    if not remaining_tracks:
+                        break
+                    print(f"Stage 3.6b: Sherlock pass {sherlock_pass}/{MAX_SHERLOCK_PASSES} "
+                          f"on {len(remaining_tracks)} unresolved tracks...")
+                    sherlock_map, sherlock_desc = sherlock_resolve(
+                        video_path=video_path,
+                        all_tracks=all_tracks,
+                        fps=meta.fps,
+                        roster_home=roster_home_dict,
+                        roster_away=roster_away_dict,
+                        descriptions=descriptions,
+                        jersey_map=jersey_map,
+                        unresolved_shots=remaining_tracks,
+                        vlm_backend=self.config.vlm_backend,
+                    )
+
+                    if not sherlock_map:
+                        print(f"  Pass {sherlock_pass}: no new resolutions, stopping.")
+                        break
+
+                    # Merge results into main maps
+                    jersey_map.update(sherlock_map)
+                    total_sherlock_resolved += len(sherlock_map)
+                    if sherlock_desc:
+                        for tid, d in sherlock_desc.items():
+                            descriptions[tid] = d
+
+                    # Update shot jersey numbers
+                    for shot in result.shot_events:
+                        if shot.shooter_track_id is not None and shot.jersey_number is None:
+                            shot.jersey_number = sherlock_map.get(int(shot.shooter_track_id))
+
+                    # Remove resolved tracks for next pass
+                    resolved_tids = set(sherlock_map.keys())
+                    remaining_tracks = [
+                        t for t in remaining_tracks
+                        if int(t.shooter_track_id) not in resolved_tids
+                    ]
+                    print(f"  Pass {sherlock_pass}: resolved {len(sherlock_map)}, "
+                          f"{len(remaining_tracks)} still unresolved.")
+
+                print(f"  Sherlock total: {total_sherlock_resolved} tracks resolved "
+                      f"across {sherlock_pass} pass(es).")
+                # Update descriptions file with all accumulated knowledge
+                if total_sherlock_resolved > 0:
+                    desc_data = {
+                        str(tid): {
+                            "track_id": d.track_id,
+                            "jersey_number": d.jersey_number,
+                            "team_color": d.team_color,
+                            "description": d.description,
+                        }
+                        for tid, d in descriptions.items()
+                    }
+                    with open(str(output_dir / "player_descriptions.json"), "w") as f:
+                        json.dump(desc_data, f, indent=2)
 
         # Report FGA attribution rate
         if result.shot_events:
