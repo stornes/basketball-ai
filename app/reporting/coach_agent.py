@@ -15,7 +15,7 @@ class BaseLLMClient(Protocol):
 class GeminiClient:
     """Google Gemini LLM client via langchain."""
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-3-flash-preview"):
         from langchain_google_genai import ChatGoogleGenerativeAI
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
