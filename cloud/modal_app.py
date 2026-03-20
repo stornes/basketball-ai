@@ -291,6 +291,154 @@ def compile_report(
     }
 
 
+# ── Visual coaching (CPU, VLM API calls) ──────────────────────────
+
+@app.function(
+    volumes={
+        "/videos": video_volume,
+        "/outputs": output_volume,
+    },
+    image=image,
+    cpu=4,
+    memory=16384,
+    timeout=3600,  # 1 hour for VLM analysis of 25 clips
+    secrets=[
+        modal.Secret.from_name("anthropic-key", required_keys=["ANTHROPIC_API_KEY"]),
+    ],
+)
+def coach_player(
+    game_id: str,
+    player_name: str,
+    jersey: int,
+    team: str,
+    model: str = "gemini-2.0-flash",
+) -> dict:
+    """Run visual coaching analysis for a specific player."""
+    import sys
+    import json
+    sys.path.insert(0, "/app")
+
+    data_dir = f"/outputs/{game_id}"
+    video_path = f"/videos/{game_id}/original.mp4"
+
+    # Load pipeline data
+    def load_json(path):
+        with open(path) as f:
+            return json.load(f)
+
+    box_score = load_json(f"{data_dir}/box_score.json")
+    shots = load_json(f"{data_dir}/shots.json")
+    possessions = load_json(f"{data_dir}/possessions.json")
+
+    # Load tracks
+    tracks_path = f"{data_dir}/player_tracks.json"
+    all_tracks = load_json(tracks_path) if os.path.exists(tracks_path) else []
+
+    # Find player track IDs
+    player_track_ids = set()
+    for side in ["home", "away"]:
+        if box_score[side].get("team_key", side) == team or side == team:
+            for p in box_score[side]["players"]:
+                if p.get("jersey_number") == jersey:
+                    player_track_ids.add(p["player_id"])
+
+    # Fallback: use all tracks for the team
+    if not player_track_ids:
+        player_track_ids = {
+            t["track_id"] for t in all_tracks
+            if t.get("team") == team
+        }
+
+    print(f"Player: {player_name} #{jersey} ({team})")
+    print(f"Track IDs: {len(player_track_ids)}")
+
+    # Filter events for this player
+    player_tracks_data = [t for t in all_tracks if t["track_id"] in player_track_ids]
+    player_shots = [s for s in shots if int(s.get("shooter_track_id", -1)) in player_track_ids]
+    player_possessions = [p for p in possessions if p.get("player_track_id") in player_track_ids]
+
+    print(f"Player tracks: {len(player_tracks_data)}")
+    print(f"Player shots: {len(player_shots)}")
+
+    # Get FPS
+    import cv2
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 28.19
+    cap.release()
+
+    # Extract annotated clips
+    from app.coaching.clip_extractor import ClipExtractor
+    output_dir = f"/outputs/{game_id}/coaching/{player_name.replace(' ', '_')}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    extractor = ClipExtractor(
+        video_path=video_path,
+        fps=fps,
+        all_tracks=all_tracks,
+        player_track_ids=player_track_ids,
+        player_team=team,
+    )
+    clips = extractor.extract_player_clips(
+        player_tracks=player_tracks_data,
+        shot_events=player_shots,
+        possession_events=player_possessions,
+        max_clips=25,
+        output_dir=f"{output_dir}/clips",
+    )
+    print(f"Extracted {len(clips)} annotated clips")
+
+    # Analyse each clip with VLM
+    from app.coaching.visual_analyst import VisualCoachingAnalyst
+    analyst = VisualCoachingAnalyst(model=model)
+
+    player_context = {
+        "player_name": player_name,
+        "jersey_number": jersey,
+        "team": team,
+        "team_color": "blue" if team == "away" else "white",
+    }
+
+    analyses = []
+    for i, clip in enumerate(clips):
+        print(f"  Analysing clip {i+1}/{len(clips)}: {clip.category} at {clip.start_sec:.0f}s...")
+        try:
+            analysis = analyst.analyse_clip(clip, player_context)
+            analyses.append(analysis)
+        except Exception as e:
+            print(f"    Error: {e}")
+
+    print(f"Analysed {len(analyses)} clips")
+
+    # Synthesise coaching report
+    if analyses:
+        report = analyst.synthesise_report(analyses, player_context)
+        print(f"Coaching report generated: {len(report.sections)} sections")
+
+        # Save report JSON
+        report_path = f"{output_dir}/coaching_report.json"
+        with open(report_path, "w") as f:
+            json.dump({
+                "player": player_name,
+                "jersey": jersey,
+                "team": team,
+                "sections": report.sections,
+                "clip_analyses": [
+                    {"category": a.category, "grade": a.grade,
+                     "observation": a.observation, "coaching_cue": a.coaching_cue}
+                    for a in analyses
+                ],
+            }, f, indent=2, ensure_ascii=False)
+
+    output_volume.commit()
+
+    return {
+        "player": player_name,
+        "clips_extracted": len(clips),
+        "clips_analysed": len(analyses),
+        "output_dir": output_dir,
+    }
+
+
 # ── Full pipeline (local entrypoint) ─────────────────────────────
 
 @app.local_entrypoint()
@@ -404,3 +552,36 @@ def full_pipeline(
 
     print(f"\nResults saved to: {local_output}")
     print(f"Done.")
+
+
+@app.local_entrypoint()
+def coach(
+    player: str,
+    jersey: int,
+    team: str,
+    game_id: str = "2026-03-14_notodden-thunders-d_vs_eb-85",
+    model: str = "gemini-2.0-flash",
+):
+    """Run visual coaching analysis for a specific player in the cloud.
+
+    Usage:
+        modal run cloud/modal_app.py::coach \
+            --player "Victor Stornes" --jersey 4 --team away
+    """
+    print(f"\n{'='*60}")
+    print(f"VISUAL COACHING — {player} #{jersey}")
+    print(f"{'='*60}")
+
+    result = coach_player.remote(
+        game_id=game_id,
+        player_name=player,
+        jersey=jersey,
+        team=team,
+        model=model,
+    )
+
+    print(f"\nClips extracted: {result['clips_extracted']}")
+    print(f"Clips analysed: {result['clips_analysed']}")
+    print(f"Output: {result['output_dir']}")
+    print(f"\nDone. Download with:")
+    print(f"  modal volume get hoopsvision-outputs /{game_id}/coaching/ data/coaching/")
