@@ -1,0 +1,265 @@
+# HOOPS-VISION-2026: v7.0.0 — Cloud Pipeline Deployment
+# Purpose: Run the entire pipeline in the cloud. Zero local compute.
+# Parent: v5.0.0-assist-detection-architecture.yaml
+# Date: 2026-03-20
+# Status: PLANNED
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "7.0.0"
+  status: "PLANNED"
+  standard: "Cloud-native basketball video analysis"
+
+# ═══════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ═══════════════════════════════════════════════════════════════════
+overview:
+  problem: |
+    The pipeline takes 30-90 minutes on M1 Max depending on tracker config.
+    DeepSORT takes 7 hours. The machine is busy during processing.
+    Sverre wants to record a game, upload it, and get a report. No local compute.
+  solution: |
+    Deploy the full pipeline on Modal with GPU (A10G or A100).
+    User uploads video, triggers analysis, downloads report.
+    Processing time: 5-10 minutes. Cost: ~$0.50-1.00 per game.
+  user_flow: |
+    1. Record game (XbootGo Falcon, 4K, ~32GB)
+    2. Transcode to 1080p (~3-5GB) on phone or in cloud
+    3. Upload to cloud storage (S3 or Modal Volume)
+    4. Trigger pipeline: CLI, API, or web dashboard
+    5. Pipeline runs on cloud GPU (5-10 min)
+    6. Download report (DOCX + JSON + shot charts)
+
+# ═══════════════════════════════════════════════════════════════════
+# ARCHITECTURE
+# ═══════════════════════════════════════════════════════════════════
+architecture:
+  platform: "Modal (modal.com)"
+  reason: |
+    - Python-native (decorators, no Docker)
+    - Pay per second GPU billing
+    - Persistent volumes for model weights and video storage
+    - Native S3/GCS mount support
+    - Scales to zero when not in use
+
+  components:
+    video_storage:
+      primary: "Modal Volume (persistent, ~$0.30/GB/month)"
+      alternative: "S3 or Google Cloud Storage"
+      lifecycle: "Keep last 5 games, auto-delete older ones"
+
+    transcode_function:
+      description: "Compress 4K to 1080p before analysis"
+      gpu: "none (CPU only, ffmpeg)"
+      input: "4K video (32GB)"
+      output: "1080p video (3-5GB)"
+      runtime: "2-3 minutes"
+      trigger: "On upload"
+
+    analyse_function:
+      description: "Full pipeline: detect, track, events, VLM, box score"
+      gpu: "A10G (24GB VRAM, $0.60/hr)"
+      input: "1080p video + roster JSON + match ID"
+      output: "box_score.json, shots.json, player_tracks.json, shot_charts, player_descriptions.json"
+      runtime: "5-10 minutes"
+      model_weights: "YOLO26m basketball (42MB, pre-loaded on volume)"
+
+    compile_function:
+      description: "Merge API data, generate report"
+      gpu: "none (CPU, LLM API calls)"
+      input: "box_score.json + match ID + roster"
+      output: "game_report.md, game_report.docx, game_report.json, advanced_stats.json"
+      runtime: "1-2 minutes"
+      dependencies: "Grok/Gemini API for narrative, kamper.basket.no for ground truth"
+
+    notify_function:
+      description: "Send completion notification"
+      options:
+        - "Email with report attached"
+        - "Slack message with download link"
+        - "Webhook to custom endpoint"
+
+  data_flow: |
+    Upload (phone/laptop)
+      → Modal Volume (persistent storage)
+        → transcode_function (4K → 1080p)
+          → analyse_function (GPU: detection + tracking + events)
+            → compile_function (CPU: API merge + report generation)
+              → Download / notification
+
+# ═══════════════════════════════════════════════════════════════════
+# MODAL DEPLOYMENT STRUCTURE
+# ═══════════════════════════════════════════════════════════════════
+modal_structure:
+  app_name: "hoopsvision"
+
+  volumes:
+    models:
+      path: "/models"
+      contents:
+        - "yolo26m_basketball_640/best.pt (42MB)"
+        - "yolo26m_basketball_merged/best.pt (42MB, when ready)"
+      lifecycle: "Permanent"
+
+    videos:
+      path: "/videos"
+      contents: "Uploaded game videos"
+      lifecycle: "Auto-delete after 30 days"
+
+    outputs:
+      path: "/outputs"
+      contents: "Pipeline outputs per game"
+      lifecycle: "Auto-delete after 90 days"
+
+  image:
+    base: "python:3.11-slim"
+    system_packages:
+      - "ffmpeg"
+      - "libgl1-mesa-glx"
+      - "libglib2.0-0"
+    python_packages:
+      - "ultralytics>=8.4.0"
+      - "opencv-python-headless>=4.8.0"
+      - "numpy>=1.24.0"
+      - "deep-sort-realtime>=1.3.0"
+      - "supervision>=0.27.0"
+      - "anthropic>=0.40.0"
+      - "openai>=1.0.0"
+      - "langchain-google-genai>=2.0.0"
+      - "scipy>=1.11.0"
+      - "python-docx>=1.0.0"
+
+  functions:
+    transcode:
+      gpu: null
+      cpu: 4
+      memory: 8192
+      timeout: 600
+      schedule: null
+
+    analyse:
+      gpu: "A10G"
+      cpu: 4
+      memory: 32768
+      timeout: 1800
+      schedule: null
+      concurrency_limit: 1
+      retries: 1
+
+    compile_report:
+      gpu: null
+      cpu: 2
+      memory: 4096
+      timeout: 600
+      schedule: null
+
+  secrets:
+    - "ANTHROPIC_API_KEY"
+    - "XAI_API_KEY"
+    - "GOOGLE_API_KEY"
+
+# ═══════════════════════════════════════════════════════════════════
+# CLI INTERFACE
+# ═══════════════════════════════════════════════════════════════════
+cli:
+  upload: |
+    hoopsvision upload game.mp4 --roster roster.json
+    # Uploads video, triggers transcode, returns game_id
+
+  analyse: |
+    hoopsvision analyse <game_id> --match-id 8254973
+    # Triggers pipeline on cloud GPU, returns when done
+
+  report: |
+    hoopsvision report <game_id> --format docx --llm grok
+    # Generates report, downloads to current directory
+
+  full: |
+    hoopsvision run game.mp4 --roster roster.json --match-id 8254973
+    # Upload + transcode + analyse + report in one command
+    # Prints progress, downloads report when done
+
+  status: |
+    hoopsvision status <game_id>
+    # Shows pipeline progress
+
+# ═══════════════════════════════════════════════════════════════════
+# COST ANALYSIS
+# ═══════════════════════════════════════════════════════════════════
+costs:
+  per_game:
+    transcode: "$0.02 (CPU, 3 min)"
+    analyse: "$0.50-1.00 (A10G, 5-10 min)"
+    compile: "$0.01 (CPU, 2 min)"
+    vlm_api: "$0.50-1.00 (Anthropic API for Sherlock, ~100 calls)"
+    llm_api: "$0.05 (Grok for report narrative)"
+    storage: "$0.01 (5GB for 30 days)"
+    total: "$1.10-2.10 per game"
+
+  monthly_estimate:
+    games_per_month: 4
+    total: "$4.40-8.40/month"
+
+  comparison:
+    local_m1_max: "Free but 30-90 min, machine busy"
+    cloud_a10g: "$1-2 per game, 5-10 min, machine free"
+    cloud_a100: "$2-4 per game, 3-5 min, fastest"
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION PHASES
+# ═══════════════════════════════════════════════════════════════════
+implementation:
+  phase_1_deploy:
+    description: "Get the pipeline running on Modal"
+    tasks:
+      - "Create Modal account and app"
+      - "Define image with all dependencies"
+      - "Upload YOLO26m weights to Modal Volume"
+      - "Wrap PipelineOrchestrator.run() as Modal function"
+      - "Test with uploaded game video"
+    effort: "2-3 hours"
+
+  phase_2_cli:
+    description: "Build the hoopsvision CLI"
+    tasks:
+      - "CLI with upload/analyse/report/run/status commands"
+      - "Progress polling during analysis"
+      - "Automatic download of results"
+    effort: "2-3 hours"
+
+  phase_3_transcode:
+    description: "Add video transcoding step"
+    tasks:
+      - "ffmpeg 4K→1080p function"
+      - "Auto-trigger on upload"
+      - "Progress reporting"
+    effort: "1 hour"
+
+  phase_4_notifications:
+    description: "Send results when done"
+    tasks:
+      - "Email notification with report link"
+      - "Slack webhook integration"
+      - "Apple Notes integration (via PAI)"
+    effort: "1-2 hours"
+
+  phase_5_web_dashboard:
+    description: "Simple web UI for non-CLI users"
+    tasks:
+      - "Upload page (drag and drop video)"
+      - "Progress page (live updates)"
+      - "Results page (download report, view shot charts)"
+      - "Deploy on Cloudflare Pages or Vercel"
+    effort: "1 day"
+
+# ═══════════════════════════════════════════════════════════════════
+# ACCEPTANCE CRITERIA
+# ═══════════════════════════════════════════════════════════════════
+acceptance_criteria:
+  - "Pipeline produces identical results on Modal as on local M1 Max"
+  - "End-to-end time (upload + process + download) under 20 minutes for a 90-min game"
+  - "Cost under $2 per game"
+  - "Zero local compute required after video upload"
+  - "CLI works from any machine with Python and internet"
+  - "Report includes all sections: box score, Four Factors, shot charts, coaching assessment"
+  - "API ground truth merge works (kamper.basket.no accessible from Modal)"
