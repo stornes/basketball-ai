@@ -1,0 +1,152 @@
+# HOOPS-VISION-2026: v9.0.0 — Annotated Film Session with Voice-Over
+# Purpose: Full game video with YOLO overlays + AI coach voice narration
+# Date: 2026-03-20
+# Status: PLANNED
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "9.0.0"
+  status: "PLANNED"
+  tagline: "Your personal commentator who knows your game"
+
+overview:
+  description: |
+    A full-game annotated video with:
+    1. YOLO detection overlays (green=target player, blue=teammates, red=opponents, yellow=ball)
+    2. Real-time scoreboard overlay (score, quarter, game clock)
+    3. Event markers (SHOT, ASSIST, STEAL, REBOUND flash on screen when detected)
+    4. AI voice-over narrating key moments as they happen
+
+    The result is a film session video that a player or parent can watch
+    and hear a coach explaining what's happening. Like having a private
+    basketball commentator who focuses on one player.
+
+  example_narration: |
+    "Victor brings the ball up the left side. Good pace, pushing transition.
+    He sees the lane defender is late getting back... drives baseline, nice read.
+    Picks up the ball a step too early though. If he keeps the dribble alive one
+    more bounce, he has a layup. Instead, he kicks it out. The shot misses.
+    Victor, keep that dribble alive when you have the advantage."
+
+# ═══════════════════════════════════════════════════════════════════
+# VISUAL OVERLAYS
+# ═══════════════════════════════════════════════════════════════════
+
+overlays:
+  player_boxes:
+    target_player: "Green box, 3px, jersey number label above"
+    teammates: "Blue box, 1px"
+    opponents: "Red box, 1px"
+    ball: "Yellow circle, 8px radius"
+    basket: "Magenta box, 1px"
+
+  scoreboard:
+    position: "Top-left"
+    content: "Home SCORE - Away SCORE | Q# MM:SS"
+    source: "Quarter boundaries from pipeline + score from API per quarter"
+
+  event_markers:
+    shot_attempt: "SHOT flash at bottom center, 2 seconds"
+    made_basket: "Green MADE! flash, 3 seconds"
+    missed_shot: "Red MISS flash, 2 seconds"
+    assist: "Blue ASSIST flash with passer name"
+    steal: "Orange STEAL flash"
+    rebound: "White REBOUND flash"
+    turnover: "Red TURNOVER flash"
+
+  player_stats_bar:
+    position: "Bottom of screen"
+    content: "Victor Stornes #4 | PTS: 24 | REB: 3 | AST: 2 | Running game stats"
+    updates: "After each scoring play"
+
+# ═══════════════════════════════════════════════════════════════════
+# VOICE-OVER
+# ═══════════════════════════════════════════════════════════════════
+
+voice_over:
+  approach: |
+    The VLM coaching analyses (from v8.0.0) provide text observations
+    for 25 key moments. These are converted to speech using TTS and
+    mixed into the video at the correct timestamps.
+
+  tts_options:
+    option_1: "ElevenLabs (best quality, ~$0.30/1000 chars)"
+    option_2: "Google Cloud TTS ($0.004/1000 chars)"
+    option_3: "Local (Coqui/Bark, free, lower quality)"
+    recommended: "ElevenLabs for coaching voice quality"
+
+  narration_types:
+    play_by_play: |
+      Short observations during live action.
+      "Good cut by Victor... receives the pass... pulls up for three... MADE!"
+    coaching_insight: |
+      Longer analysis during dead ball time (free throws, timeouts, between quarters).
+      "Victor, watch this play again. You had the right idea driving baseline,
+       but you picked up your dribble too early. One more step and you have
+       a layup or a kick-out to the corner."
+    stat_update: |
+      Brief stat updates after scoring plays.
+      "That's his third three-pointer. 15 points on 6 attempts. Efficient night."
+
+  timing: |
+    Voice-over only during key moments, not continuous.
+    ~30-40 narrated moments per game, each 5-15 seconds.
+    Total narration: ~5-8 minutes across 40 minutes of game.
+    The rest of the video has natural game audio (if available from XbootGo).
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION
+# ═══════════════════════════════════════════════════════════════════
+
+implementation:
+  phase_1_annotated_video:
+    description: "Full game with YOLO overlays + scoreboard + event markers"
+    tasks:
+      - "Read 1080p video frame by frame"
+      - "Draw YOLO boxes from player_tracks.json"
+      - "Overlay scoreboard (quarter, score, clock)"
+      - "Flash event markers at detected events"
+      - "Write annotated video"
+    output: "game_annotated.mp4 (1080p, ~3GB)"
+    effort: "3-4 hours"
+
+  phase_2_voice_generation:
+    description: "Generate voice narration for key moments"
+    tasks:
+      - "Take v8.0.0 clip analyses (25 moments with coaching text)"
+      - "Convert each to speech via TTS"
+      - "Trim silence, normalize volume"
+    output: "25 audio clips (~5-8 min total)"
+    effort: "2 hours"
+
+  phase_3_mix:
+    description: "Mix voice narration into annotated video"
+    tasks:
+      - "Align each audio clip to its timestamp in the video"
+      - "Duck game audio during narration (if game audio exists)"
+      - "Add intro: 'Film session: Victor Stornes, March 14 2026'"
+      - "Add outro: development priorities summary"
+    output: "game_film_session.mp4 (final product)"
+    effort: "2 hours"
+
+  command: |
+    python scripts/generate_film_session.py \
+      --data-dir data/outputs/v2.1.0 \
+      --video data/videos/game_1080p.mp4 \
+      --player "Victor Stornes" --jersey 4 --team away \
+      --coaching-report data/coaching/victor/coaching_report.json \
+      --tts elevenlabs \
+      --output data/film-sessions/victor-2026-03-14.mp4
+
+# ═══════════════════════════════════════════════════════════════════
+# ACCEPTANCE CRITERIA
+# ═══════════════════════════════════════════════════════════════════
+
+acceptance_criteria:
+  - "Video plays smoothly at 1080p 30fps"
+  - "Victor is always highlighted in green (when tracked)"
+  - "Scoreboard shows correct score at all times"
+  - "Voice narration is clear and correctly timed to the action"
+  - "Coaching insights reference what's visible on screen"
+  - "A parent watching this understands what their kid did well and what to work on"
+  - "Total processing time under 30 minutes (cloud)"
