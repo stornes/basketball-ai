@@ -146,7 +146,22 @@ def main() -> int:
 
     # Extract clips
     print(f"\nExtracting up to {args.max_clips} clips...")
-    extractor = ClipExtractor(video_path=args.video, fps=fps)
+    # Load all tracks for annotation overlays
+    all_tracks = None
+    tracks_path = data_dir / "player_tracks.json"
+    if tracks_path.exists():
+        print(f"  Loading tracks for annotation overlays...")
+        with open(tracks_path) as f:
+            all_tracks = json.load(f)
+        print(f"  {len(all_tracks)} track points loaded")
+
+    extractor = ClipExtractor(
+        video_path=args.video,
+        fps=fps,
+        all_tracks=all_tracks,
+        player_track_ids=set(player_track_ids),
+        player_team=args.team,
+    )
     clips = extractor.extract_player_clips(
         player_tracks=player_tracks,
         shot_events=player_shots,

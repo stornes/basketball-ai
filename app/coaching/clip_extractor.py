@@ -48,9 +48,81 @@ class PlayerClip:
 class ClipExtractor:
     """Extracts key player clips from a game video using cv2."""
 
-    def __init__(self, video_path: str, fps: float):
+    # Annotation colors (BGR for cv2)
+    COLOR_PLAYER = (0, 255, 0)      # Green: target player
+    COLOR_TEAMMATE = (255, 180, 0)  # Light blue: teammates
+    COLOR_OPPONENT = (0, 0, 255)    # Red: opponents
+    COLOR_BALL = (0, 255, 255)      # Yellow: ball
+    COLOR_BASKET = (255, 0, 255)    # Magenta: basket
+
+    def __init__(
+        self,
+        video_path: str,
+        fps: float,
+        all_tracks: list[dict] | None = None,
+        player_track_ids: set[int] | None = None,
+        player_team: str | None = None,
+    ):
+        """
+        Args:
+            video_path: Path to game video.
+            fps: Video frames per second.
+            all_tracks: Full player_tracks.json data for annotation overlays.
+                If provided, clips are annotated with bounding boxes:
+                green=target player, blue=teammates, red=opponents, yellow=ball.
+            player_track_ids: Track IDs belonging to the target player.
+            player_team: "home" or "away" for the target player's team.
+        """
         self.video_path = video_path
         self.fps = fps
+        self._player_track_ids = player_track_ids or set()
+        self._player_team = player_team
+
+        # Index tracks by frame for fast lookup during annotation
+        self._tracks_by_frame: dict[int, list[dict]] | None = None
+        if all_tracks:
+            self._tracks_by_frame = defaultdict(list)
+            for t in all_tracks:
+                self._tracks_by_frame[t["frame_idx"]].append(t)
+
+    def _annotate_frame(self, frame, frame_idx: int):
+        """Draw YOLO detection overlays on a frame.
+
+        Green box + label on the target player.
+        Blue boxes on teammates. Red boxes on opponents.
+        Yellow circle on ball (if detected).
+        """
+        import cv2
+
+        tracks = self._tracks_by_frame.get(frame_idx, [])
+        for t in tracks:
+            bbox = t.get("bbox", [])
+            if len(bbox) < 4:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in bbox[:4]]
+            tid = t.get("track_id")
+            team = t.get("team")
+
+            # Determine color and label
+            if tid in self._player_track_ids:
+                color = self.COLOR_PLAYER
+                label = f"#{t.get('jersey_number', '?')}"
+                thickness = 3
+            elif team == self._player_team:
+                color = self.COLOR_TEAMMATE
+                label = ""
+                thickness = 1
+            else:
+                color = self.COLOR_OPPONENT
+                label = ""
+                thickness = 1
+
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+            if label:
+                cv2.putText(frame, label, (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+        return frame
 
     def extract_player_clips(
         self,
@@ -228,6 +300,9 @@ class ClipExtractor:
                 ret, frame = cap.read()
                 if not ret:
                     break
+                # Annotate frame with YOLO detection overlays
+                if self._tracks_by_frame is not None:
+                    frame = self._annotate_frame(frame, frame_idx)
                 writer.write(frame)
                 frame_indices.append(frame_idx)
 
