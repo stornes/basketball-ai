@@ -207,13 +207,20 @@ class FilmReportGenerator:
         report.quarter_narratives = self._generate_quarter_narratives(game, advanced)
         report.game_summary = self._generate_game_summary(game, advanced, report)
 
-        # Clean up LLM output: strip markdown headings that aren't meant for the document
+        # Clean up LLM output: strip markdown headings from all text fields.
+        # LLMs often add ### headers that aren't meant for the DOCX document.
         import re
-        report.game_summary = re.sub(
-            r'###\s*Paragraph\s*\d+[^:\n]*:\s*[^\n]*\n?',
-            '',
-            report.game_summary,
-        ).strip()
+        _md_heading = re.compile(r'^#{1,4}\s+.*$', re.MULTILINE)
+
+        def _strip_md(text: str) -> str:
+            return _md_heading.sub('', text).strip()
+
+        report.game_summary = _strip_md(report.game_summary)
+        report.key_stat_drivers = _strip_md(report.key_stat_drivers)
+        report.losing_factor = _strip_md(report.losing_factor)
+        report.winning_adjustment = _strip_md(report.winning_adjustment)
+        for key in list(report.scouting_reports.keys()):
+            report.scouting_reports[key] = _strip_md(report.scouting_reports[key])
 
         return report
 
