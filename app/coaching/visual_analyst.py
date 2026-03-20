@@ -106,7 +106,7 @@ Write a comprehensive coaching report with exactly these 7 sections. Write direc
 class VisualCoachingAnalyst:
     """Analyses player clips using Gemini Vision and synthesises a coaching report."""
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-3-flash-preview"):
         import google.genai as genai
 
         api_key = os.environ.get("GOOGLE_API_KEY")

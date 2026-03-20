@@ -311,7 +311,7 @@ def coach_player(
     player_name: str,
     jersey: int,
     team: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3-flash-preview",
 ) -> dict:
     """Run visual coaching analysis for a specific player."""
     import sys
@@ -560,7 +560,7 @@ def coach(
     jersey: int,
     team: str,
     game_id: str = "2026-03-14_notodden-thunders-d_vs_eb-85",
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3-flash-preview",
 ):
     """Run visual coaching analysis for a specific player in the cloud.
 

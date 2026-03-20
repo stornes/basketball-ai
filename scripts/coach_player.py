@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Directory to save coaching output")
     parser.add_argument("--max-clips", type=int, default=25, help="Maximum clips to extract")
     parser.add_argument("--clip-duration", type=float, default=10.0, help="Clip duration in seconds")
-    parser.add_argument("--model", default="gemini-2.0-flash", help="Gemini model to use")
+    parser.add_argument("--model", default="gemini-3-flash-preview", help="Gemini model to use")
     parser.add_argument("--no-docx", action="store_true", help="Skip DOCX rendering, save JSON only")
     return parser.parse_args()
 
