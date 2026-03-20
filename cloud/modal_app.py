@@ -311,7 +311,7 @@ def coach_player(
     player_name: str,
     jersey: int,
     team: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> dict:
     """Run visual coaching analysis for a specific player."""
     import sys
@@ -354,7 +354,7 @@ def coach_player(
 
     # Filter events for this player
     player_tracks_data = [t for t in all_tracks if t["track_id"] in player_track_ids]
-    player_shots = [s for s in shots if int(s.get("shooter_track_id", -1)) in player_track_ids]
+    player_shots = [s for s in shots if s.get("shooter_track_id") is not None and int(s["shooter_track_id"]) in player_track_ids]
     player_possessions = [p for p in possessions if p.get("player_track_id") in player_track_ids]
 
     print(f"Player tracks: {len(player_tracks_data)}")
@@ -560,7 +560,7 @@ def coach(
     jersey: int,
     team: str,
     game_id: str = "2026-03-14_notodden-thunders-d_vs_eb-85",
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ):
     """Run visual coaching analysis for a specific player in the cloud.
 
