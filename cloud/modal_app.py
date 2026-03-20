@@ -185,8 +185,8 @@ def analyse(
     output_dir = f"/outputs/{game_id}"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Write roster to temp file
-    roster_path = f"/outputs/{game_id}/roster.json"
+    # Write roster to temp location (not output_dir, to avoid SameFileError when pipeline copies it)
+    roster_path = f"/tmp/roster_{game_id}.json"
     with open(roster_path, "w") as f:
         json.dump(roster, f)
 
