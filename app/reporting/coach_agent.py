@@ -31,7 +31,14 @@ class GeminiClient:
             messages.append(SystemMessage(content=system))
         messages.append(HumanMessage(content=prompt))
         response = self.llm.invoke(messages)
-        return response.content
+        content = response.content
+        # Gemini 3 may return list of dicts instead of string
+        if isinstance(content, list):
+            content = "\n".join(
+                item.get("text", str(item)) if isinstance(item, dict) else str(item)
+                for item in content
+            )
+        return content
 
 
 class GrokClient:

@@ -212,7 +212,11 @@ class FilmReportGenerator:
         import re
         _md_heading = re.compile(r'^#{1,4}\s+.*$', re.MULTILINE)
 
-        def _strip_md(text: str) -> str:
+        def _strip_md(text) -> str:
+            if isinstance(text, list):
+                text = "\n".join(str(item.get("text", item) if isinstance(item, dict) else item) for item in text)
+            if not isinstance(text, str):
+                text = str(text)
             return _md_heading.sub('', text).strip()
 
         report.game_summary = _strip_md(report.game_summary)

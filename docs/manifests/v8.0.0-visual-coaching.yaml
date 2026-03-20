@@ -1,0 +1,199 @@
+# HOOPS-VISION-2026: v8.0.0 — World Class Visual Coaching
+# Purpose: Deep visual observation and coaching of a specific player
+# Date: 2026-03-20
+# Status: PLANNED
+
+project_metadata:
+  name: "HoopsVision 2026"
+  version: "8.0.0"
+  status: "PLANNED"
+  tagline: "See the game through Victor's eyes"
+
+overview:
+  problem: |
+    Current scouting reports are stat-based. They say "Mesfin scored 44 points
+    on 42% TS%". They don't say "Victor made three excellent backdoor cuts in Q2
+    that his teammates missed, and his closeout technique on #4 was late 6 of 8
+    times." Real coaching requires watching the player, not reading a spreadsheet.
+  solution: |
+    A VLM-powered visual coaching system that watches a specific player through
+    the entire game, extracts key moments, analyses decision-making, movement,
+    technique, and generates a world-class coaching report with annotated clips.
+  target: "Victor Stornes (#4, EB-85)"
+  model: "Gemini 3.1 Pro Preview (1M context, video understanding)"
+
+# ═══════════════════════════════════════════════════════════════════
+# WHAT THE COACH SEES
+# ═══════════════════════════════════════════════════════════════════
+
+coaching_report_sections:
+
+  1_player_identity:
+    title: "Player Profile"
+    content:
+      - "Name, number, team, position, minutes played"
+      - "Physical profile observed from video (height relative to peers, build, speed)"
+
+  2_offensive_overview:
+    title: "Offensive Game"
+    observations:
+      - "Primary role: scorer, facilitator, off-ball mover, screener?"
+      - "Scoring breakdown: paint vs mid-range vs three vs transition"
+      - "Shot selection quality: open vs contested, good vs bad shots"
+      - "Ball handling under pressure: composure, protect-the-ball habits"
+    clips: "3-5 best offensive plays + 2-3 worst decisions"
+
+  3_playmaking:
+    title: "Playmaking and Decision-Making"
+    observations:
+      - "Court vision: does he see the open man?"
+      - "Pass timing: early vs late, does he hold the ball too long?"
+      - "Pick and roll reads: correct decisions?"
+      - "Turnover patterns: forced passes, dribble into traffic, lazy passes"
+    clips: "Best assist, worst turnover, missed opportunity"
+
+  4_off_ball:
+    title: "Off-Ball Movement"
+    observations:
+      - "Cutting: backdoor cuts, baseline cuts, quality and timing"
+      - "Screening: sets screens for teammates? Screen quality?"
+      - "Spacing: does he clog the lane or maintain proper spacing?"
+      - "Transition: does he sprint the floor or jog back?"
+    clips: "Best cut, worst spacing violation, transition example"
+
+  5_defense:
+    title: "Defensive Game"
+    observations:
+      - "On-ball defense: stance, lateral movement, staying in front"
+      - "Closeout technique: under control or flying past?"
+      - "Help defense: rotation timing, awareness of weak side"
+      - "Rebounding: box out effort, pursuit of long rebounds"
+      - "Transition defense: sprints back or ball-watches?"
+    clips: "Best defensive stop, worst breakdown, closeout example"
+
+  6_intangibles:
+    title: "Intangibles and Effort"
+    observations:
+      - "Body language: after misses, after teammate errors, during timeouts"
+      - "Communication: talks on defense? Calls screens?"
+      - "Hustle plays: diving for loose balls, contesting shots, 50/50 balls"
+      - "Leadership moments: encourages teammates, takes responsibility"
+    clips: "Best hustle play, body language example"
+
+  7_development_plan:
+    title: "Development Priorities"
+    content:
+      - "Top 3 strengths to maintain"
+      - "Top 3 areas for growth (specific, actionable)"
+      - "One drill per growth area"
+      - "What to focus on in the next game"
+
+# ═══════════════════════════════════════════════════════════════════
+# HOW IT WORKS
+# ═══════════════════════════════════════════════════════════════════
+
+architecture:
+  step_1_identify:
+    description: "Find Victor in the video"
+    method: |
+      Use the pipeline's player tracks + VLM Sherlock to identify which
+      track IDs belong to Victor (#4 EB-85). Extract his position for
+      every frame he appears in.
+
+  step_2_extract_clips:
+    description: "Extract 20-30 key moments"
+    method: |
+      From Victor's track, extract 10-second clips around:
+      - Every shot attempt (made and missed)
+      - Every possession where he touched the ball
+      - Every defensive possession guarding the primary scorer
+      - Every transition play (fast break or getting back)
+      - Random samples of off-ball movement
+    output: "20-30 clips, each 5-15 seconds, total ~3-5 minutes of video"
+
+  step_3_analyse:
+    description: "VLM analyses each clip"
+    method: |
+      Send each clip to Gemini 3.1 Pro with a structured coaching prompt.
+      The prompt tells the VLM: "You are an elite basketball coach. Watch
+      this clip of player #4 (blue jersey). Analyse his..."
+
+      Each clip gets a structured response:
+      - Situation (score, time, what was happening)
+      - What Victor did
+      - What he should have done (if different)
+      - Grade (A/B/C/D)
+      - Coaching cue (one sentence)
+
+  step_4_synthesise:
+    description: "Build the coaching report"
+    method: |
+      Feed all 20-30 clip analyses to Gemini 3.1 Pro (1M context) along
+      with the full box score and team context. Generate the 7-section
+      coaching report with embedded clip references.
+
+  step_5_output:
+    description: "Produce the deliverable"
+    formats:
+      - "DOCX coaching report with clip timestamps"
+      - "Apple Note with key observations"
+      - "Highlight reel (best 5 plays + worst 3 for film session)"
+
+# ═══════════════════════════════════════════════════════════════════
+# IMPLEMENTATION
+# ═══════════════════════════════════════════════════════════════════
+
+implementation:
+  phase_1_clip_extraction:
+    description: "Extract Victor's clips from game video"
+    tasks:
+      - "Identify Victor's track IDs from pipeline data"
+      - "Extract clips around his key events (shots, possessions)"
+      - "Save clips with metadata (timestamp, event type, score)"
+    files:
+      - "scripts/extract_player_clips.py"
+    effort: "2-3 hours"
+
+  phase_2_vlm_analysis:
+    description: "Analyse clips with Gemini 3.1 Pro"
+    tasks:
+      - "Build coaching prompts per category (offense, defense, etc.)"
+      - "Send clips to Gemini 3.1 Pro Vision API"
+      - "Parse structured responses"
+      - "Handle failures (clip too dark, player occluded)"
+    files:
+      - "app/coaching/visual_analyst.py"
+      - "app/coaching/prompts/"
+    effort: "3-4 hours"
+
+  phase_3_report:
+    description: "Generate coaching report"
+    tasks:
+      - "Synthesise clip analyses into 7-section report"
+      - "Generate development plan with drills"
+      - "Render DOCX with clip timestamps"
+    files:
+      - "app/coaching/report_generator.py"
+      - "scripts/coach_player.py"
+    effort: "2-3 hours"
+
+  usage:
+    command: |
+      python scripts/coach_player.py \
+        --data-dir data/outputs/v2.1.0 \
+        --video data/videos/game.mp4 \
+        --player "Victor Stornes" \
+        --jersey 4 \
+        --team away
+
+# ═══════════════════════════════════════════════════════════════════
+# ACCEPTANCE CRITERIA
+# ═══════════════════════════════════════════════════════════════════
+
+acceptance_criteria:
+  - "Report includes observations from actual video, not just stats"
+  - "Each section references specific moments with timestamps"
+  - "Development plan is actionable (specific drills, not generic advice)"
+  - "A real coach reading this report would learn something they didn't see"
+  - "Victor's parents can understand it"
+  - "Turnaround: under 30 minutes from pipeline completion to coaching report"
